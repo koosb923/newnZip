@@ -45,7 +45,6 @@ struct HUDProgressView: View {
         .frame(width: 360)
         .onAppear {
             start()
-            positionWindow()
         }
     }
 
@@ -157,27 +156,4 @@ struct HUDProgressView: View {
         }
     }
 
-    private func positionWindow() {
-        DispatchQueue.main.async {
-            guard let window = NSApplication.shared.windows.first else {
-                return
-            }
-            window.level = .floating
-            window.styleMask.remove(.resizable)
-            window.styleMask.remove(.miniaturizable)
-            window.titleVisibility = .hidden
-            window.titlebarAppearsTransparent = true
-            window.isMovableByWindowBackground = true
-
-            if let screen = NSScreen.main {
-                let visibleFrame = screen.visibleFrame
-                let frame = window.frame
-                let origin = CGPoint(
-                    x: visibleFrame.maxX - frame.width - 20,
-                    y: visibleFrame.maxY - frame.height - 20
-                )
-                window.setFrameOrigin(origin)
-            }
-        }
-    }
 }

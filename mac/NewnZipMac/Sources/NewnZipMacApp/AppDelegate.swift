@@ -96,8 +96,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         window.contentView = NSHostingView(
             rootView: HUDProgressView(command: command, terminatesWhenDone: terminatesWhenDone)
         )
+        configureHUDWindow(window)
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         hudWindows.append(window)
+    }
+
+    private func configureHUDWindow(_ window: NSWindow) {
+        window.level = .floating
+        window.styleMask.remove(.resizable)
+        window.styleMask.remove(.miniaturizable)
+        window.titleVisibility = .hidden
+        window.titlebarAppearsTransparent = true
+        window.isMovableByWindowBackground = true
+
+        let screen = NSScreen.main ?? NSScreen.screens.first
+        guard let visibleFrame = screen?.visibleFrame else {
+            return
+        }
+        let frame = window.frame
+        let origin = CGPoint(
+            x: visibleFrame.maxX - frame.width - 20,
+            y: visibleFrame.maxY - frame.height - 20
+        )
+        window.setFrameOrigin(origin)
     }
 }

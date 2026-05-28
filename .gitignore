@@ -1,10 +1,16 @@
 .DS_Store
+._*
+__MACOSX/
 
 # macOS 앱 번들 및 배포 산출물
 dist/
 build/
 *.app
 *.dSYM
+*.xcarchive
+DerivedData/
+xcuserdata/
+*.xcuserstate
 
 # SwiftPM 빌드 산출물
 .build/
@@ -14,12 +20,25 @@ Package.resolved
 # .NET 빌드 산출물
 bin/
 obj/
+publish/
+TestResults/
+.vs/
 
 # 네이티브 엔진 빌드 산출물
 native/newnzip_engine/bin/
+native/newnzip_engine/backends/
 
 # 임시 파일
 *.tmp
 *.temp
 *.swp
 *.swo
+*.log
+*.zip
+*.7z
+*.tar
+*.tar.gz
+*.tar.bz2
+*.tar.xz
+*.zst
+*.zstd

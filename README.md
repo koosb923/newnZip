@@ -1,6 +1,6 @@
 # newnZip
 
-`newnZip`은 네이티브 앱 중심 구조로 정리된 압축 프로그램 프로젝트입니다.
+`newnZip`은 macOS와 Windows에서 기본 압축 도구처럼 가볍게 동작하도록 만든 네이티브 압축 프로그램 프로젝트입니다.
 
 - `shared/`
   macOS와 Windows가 함께 사용하는 다국어 리소스와 설정 스키마
@@ -36,18 +36,39 @@ newnZip/
 
 ## macOS
 
-mac 앱은 `mac/NewnZipMac` 아래에 있으며 SwiftUI를 사용합니다.
+mac 앱은 `mac/NewnZipMac` 아래에 있으며 SwiftUI와 AppKit 런치 흐름을 함께 사용합니다.
+
+현재 범위:
+
+- 앱을 직접 실행하면 메인 창을 표시
+- 압축파일 더블클릭, Finder Quick Action, 앱 아이콘 드롭은 작은 HUD 진행률 창으로 처리
+- HUD는 우측 상단에 통일해서 표시하고 완료 후 자동 종료
+- 압축/해제 중 취소 지원
+- 같은 이름 결과 처리 옵션 지원: 사본으로 추가, 덮어쓰기, 항상 물어보기
+- 기본값은 사본으로 추가
+- Finder Quick Action 메뉴:
+  - `newnZip으로 압축하기`
+  - `newnZip으로 압축 풀기`
 
 빌드:
 
 ```bash
-cd mac/NewnZipMac
-swift build
+./scripts/build_macos_app.sh ~/Desktop/newnZip.app
+./scripts/register_macos.sh ~/Desktop/newnZip.app
 ```
 
 ## Windows
 
-Windows 폴더에는 네이티브 앱 스캐폴드가 있으며, `shared`의 다국어 및 설정 구조를 함께 사용합니다.
+Windows 앱은 `windows/NewnZipWin` 아래에 있으며 WinUI 3 기반입니다.
+
+현재 범위:
+
+- 일반 실행 시 메인 창 표시
+- 우클릭/파일 연결 실행 시 작은 HUD 진행률 창으로 처리
+- HUD에서 진행률, 현재 파일명, 취소 버튼 제공
+- 압축/해제 결과는 같은 위치에 생성
+- 같은 이름 결과 처리 옵션 지원: 사본으로 추가, 덮어쓰기, 항상 물어보기
+- Windows 최종 XAML 빌드는 Windows 환경에서 검증 필요
 
 ## 네이티브 엔진
 
