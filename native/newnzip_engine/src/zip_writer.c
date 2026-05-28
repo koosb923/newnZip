@@ -83,8 +83,38 @@ static CentralEntry compress_source_to_payload(
     uint32_t *memory_payload_size
 ) {
     struct stat file_stat;
-    if (stat(source->path, &file_stat) != 0) {
+    if (lstat(source->path, &file_stat) != 0) {
         fail_errno(source->path);
+    }
+
+    char *normalized_name = normalize_archive_name(source->archive_name);
+
+    CentralEntry entry;
+    entry.name = normalized_name;
+    entry.crc32 = crc32(0L, Z_NULL, 0);
+    entry.compressed_size = 0;
+    entry.uncompressed_size = 0;
+    entry.local_header_offset = 0;
+    entry.external_attributes = ((uint32_t) (source->mode & 0xffffu)) << 16;
+    entry.method = source->is_symlink ? ZIP_METHOD_STORE : ZIP_METHOD_DEFLATE;
+    entry.mod_time = dos_time_value(file_stat.st_mtime);
+    entry.mod_date = dos_date_value(file_stat.st_mtime);
+
+    if (source->is_symlink) {
+        size_t target_length = strlen(source->link_target);
+        unsigned char *payload = malloc(target_length);
+        if (!payload && target_length > 0) {
+            fail("메모리가 부족합니다");
+        }
+        if (target_length > 0) {
+            memcpy(payload, source->link_target, target_length);
+        }
+        entry.crc32 = crc32(entry.crc32, payload, (uInt) target_length);
+        entry.compressed_size = (uint32_t) target_length;
+        entry.uncompressed_size = (uint32_t) target_length;
+        *memory_payload = payload;
+        *memory_payload_size = (uint32_t) target_length;
+        return entry;
     }
 
     FILE *input = fopen(source->path, "rb");
@@ -103,18 +133,6 @@ static CentralEntry compress_source_to_payload(
             fail_errno(*temp_path);
         }
     }
-
-    char *normalized_name = normalize_archive_name(source->archive_name);
-
-    CentralEntry entry;
-    entry.name = normalized_name;
-    entry.crc32 = crc32(0L, Z_NULL, 0);
-    entry.compressed_size = 0;
-    entry.uncompressed_size = 0;
-    entry.local_header_offset = 0;
-    entry.method = ZIP_METHOD_DEFLATE;
-    entry.mod_time = dos_time_value(file_stat.st_mtime);
-    entry.mod_date = dos_date_value(file_stat.st_mtime);
 
     z_stream stream;
     memset(&stream, 0, sizeof(stream));
@@ -383,7 +401,7 @@ static void write_central_directory(FILE *output, const CentralList *entries) {
         const CentralEntry *entry = &entries->items[i];
         uint16_t name_length = (uint16_t) strlen(entry->name);
         write_u32(output, ZIP_CENTRAL_DIRECTORY_HEADER);
-        write_u16(output, ZIP_VERSION);
+        write_u16(output, (uint16_t) ((3u << 8) | ZIP_VERSION));
         write_u16(output, ZIP_VERSION);
         write_u16(output, 0);
         write_u16(output, entry->method);
@@ -397,7 +415,7 @@ static void write_central_directory(FILE *output, const CentralList *entries) {
         write_u16(output, 0);
         write_u16(output, 0);
         write_u16(output, 0);
-        write_u32(output, 0);
+        write_u32(output, entry->external_attributes);
         write_u32(output, entry->local_header_offset);
         if (fwrite(entry->name, 1, name_length, output) != name_length) {
             fail_errno("failed to write central directory entry");

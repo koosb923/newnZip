@@ -26,12 +26,28 @@ enum AppLanguage: String, CaseIterable, Identifiable {
     }
 }
 
+enum OutputConflictPolicy: String, CaseIterable, Identifiable {
+    case append = "append"
+    case overwrite = "overwrite"
+    case ask = "ask"
+
+    var id: String { rawValue }
+}
+
 @MainActor
 final class AppSettings: ObservableObject {
     static let shared = AppSettings()
 
     @Published var defaultFormat: ArchiveFormat {
         didSet { UserDefaults.standard.set(defaultFormat.rawValue, forKey: "default_format") }
+    }
+
+    @Published var splitSizeMB: Int {
+        didSet { UserDefaults.standard.set(splitSizeMB, forKey: "split_size_mb") }
+    }
+
+    @Published var outputConflictPolicy: OutputConflictPolicy {
+        didSet { UserDefaults.standard.set(outputConflictPolicy.rawValue, forKey: "output_conflict_policy") }
     }
 
     @Published var language: AppLanguage {
@@ -44,6 +60,9 @@ final class AppSettings: ObservableObject {
     private init() {
         let savedFormat = UserDefaults.standard.string(forKey: "default_format")
         self.defaultFormat = ArchiveFormat(rawValue: savedFormat ?? "zip") ?? .zip
+        self.splitSizeMB = UserDefaults.standard.integer(forKey: "split_size_mb")
+        let savedConflictPolicy = UserDefaults.standard.string(forKey: "output_conflict_policy")
+        self.outputConflictPolicy = OutputConflictPolicy(rawValue: savedConflictPolicy ?? "append") ?? .append
 
         let savedLanguage = UserDefaults.standard.string(forKey: "language")
         let resolvedLanguage = AppLanguage(rawValue: savedLanguage ?? "system") ?? .system

@@ -142,26 +142,60 @@ void free_central_list(CentralList *list) {
     free(list->items);
 }
 
+static void source_list_push(
+    SourceEntry **items,
+    size_t *count,
+    size_t *capacity,
+    const char *path,
+    const char *archive_name,
+    const char *link_target,
+    uint64_t size,
+    mode_t mode,
+    bool is_symlink
+) {
+    if (*count == *capacity) {
+        size_t new_capacity = *capacity == 0 ? 16 : (*capacity * 2);
+        SourceEntry *new_items = realloc(*items, new_capacity * sizeof(SourceEntry));
+        if (!new_items) {
+            fail("out of memory");
+        }
+        *items = new_items;
+        *capacity = new_capacity;
+    }
+    (*items)[*count].path = duplicate_string(path);
+    (*items)[*count].archive_name = duplicate_string(archive_name);
+    (*items)[*count].link_target = link_target ? duplicate_string(link_target) : NULL;
+    (*items)[*count].size = size;
+    (*items)[*count].mode = mode;
+    (*items)[*count].is_symlink = is_symlink;
+    *count += 1;
+}
+
 void collect_sources(const char *path, const char *archive_root, SourceEntry **items, size_t *count, size_t *capacity) {
     struct stat item_stat;
-    if (stat(path, &item_stat) != 0) {
+    if (lstat(path, &item_stat) != 0) {
         fail_errno(path);
     }
 
-    if (S_ISREG(item_stat.st_mode)) {
-        if (*count == *capacity) {
-            size_t new_capacity = *capacity == 0 ? 16 : (*capacity * 2);
-            SourceEntry *new_items = realloc(*items, new_capacity * sizeof(SourceEntry));
-            if (!new_items) {
-                fail("out of memory");
-            }
-            *items = new_items;
-            *capacity = new_capacity;
+    if (S_ISLNK(item_stat.st_mode)) {
+        size_t buffer_size = item_stat.st_size > 0 ? (size_t) item_stat.st_size + 1 : PATH_MAX;
+        char *target = malloc(buffer_size);
+        if (!target) {
+            fail("out of memory");
         }
-        (*items)[*count].path = duplicate_string(path);
-        (*items)[*count].archive_name = duplicate_string(archive_root);
-        (*items)[*count].size = (uint64_t) item_stat.st_size;
-        *count += 1;
+        ssize_t target_length = readlink(path, target, buffer_size - 1);
+        if (target_length < 0) {
+            free(target);
+            fail_errno(path);
+        }
+        target[target_length] = '\0';
+        source_list_push(items, count, capacity, path, archive_root, target, (uint64_t) target_length, item_stat.st_mode, true);
+        free(target);
+        return;
+    }
+
+    if (S_ISREG(item_stat.st_mode)) {
+        source_list_push(items, count, capacity, path, archive_root, NULL, (uint64_t) item_stat.st_size, item_stat.st_mode, false);
         return;
     }
 
@@ -192,6 +226,7 @@ void free_sources(SourceEntry *items, size_t count) {
     for (size_t i = 0; i < count; i++) {
         free(items[i].path);
         free(items[i].archive_name);
+        free(items[i].link_target);
     }
     free(items);
 }

@@ -7,7 +7,7 @@ enum DropIntent {
 
 enum DropResolver {
     static func resolve(urls: [URL]) -> DropIntent? {
-        let archiveExtensions = ["zip", "7z", "rar", "tar", "tgz", "gz", "bz2", "xz", "iso", "img", "cbz"]
+        let archiveExtensions = ["zip", "7z", "rar", "tar", "tgz", "gz", "bz2", "xz", "iso", "img", "cbz", "001", "z01"]
         let archives = urls.filter { archiveExtensions.contains($0.pathExtension.lowercased()) }
         let regular = urls.filter { !archiveExtensions.contains($0.pathExtension.lowercased()) }
 

@@ -27,7 +27,10 @@
 typedef struct {
     char *path;
     char *archive_name;
+    char *link_target;
     uint64_t size;
+    mode_t mode;
+    bool is_symlink;
 } SourceEntry;
 
 typedef struct {
@@ -36,6 +39,7 @@ typedef struct {
     uint32_t compressed_size;
     uint32_t uncompressed_size;
     uint32_t local_header_offset;
+    uint32_t external_attributes;
     uint16_t method;
     uint16_t mod_time;
     uint16_t mod_date;

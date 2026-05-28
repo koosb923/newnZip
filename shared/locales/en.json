@@ -106,6 +106,15 @@
   "settings.title": "Settings",
   "settings.language": "Language",
   "settings.default_format": "Default format",
+  "settings.split_size_mb": "Split size MB (0 disables)",
+  "settings.output_conflict_policy": "When archive name exists",
+  "settings.output_conflict_append": "Add as copy",
+  "settings.output_conflict_overwrite": "Overwrite",
+  "settings.output_conflict_ask": "Always ask",
+  "conflict.ask_title": "An archive with this name already exists.",
+  "conflict.ask_message": "Add a copy or overwrite the existing file.",
+  "conflict.append": "Add Copy",
+  "conflict.overwrite": "Overwrite",
   "settings.save": "Save",
   "settings.cancel": "Cancel"
 }

@@ -49,6 +49,11 @@ final class Localizer {
     }
 
     private func resourceURL(for languageCode: String) -> URL? {
+        let appBundleResource = Bundle.main.url(forResource: languageCode, withExtension: "json", subdirectory: "locales")
+        if appBundleResource != nil {
+            return appBundleResource
+        }
+
         let bundled = Bundle.module.url(forResource: languageCode, withExtension: "json", subdirectory: "Resources/locales")
         if bundled != nil {
             return bundled

@@ -106,6 +106,15 @@
   "settings.title": "設定",
   "settings.language": "言語",
   "settings.default_format": "既定の形式",
+  "settings.split_size_mb": "分割サイズ MB (0で無効)",
+  "settings.output_conflict_policy": "同名アーカイブの処理",
+  "settings.output_conflict_append": "コピーとして追加",
+  "settings.output_conflict_overwrite": "上書き",
+  "settings.output_conflict_ask": "常に確認",
+  "conflict.ask_title": "同じ名前のアーカイブがあります。",
+  "conflict.ask_message": "コピーとして追加するか、既存ファイルを上書きできます。",
+  "conflict.append": "コピーとして追加",
+  "conflict.overwrite": "上書き",
   "settings.save": "保存",
   "settings.cancel": "キャンセル"
 }

@@ -106,6 +106,15 @@
   "settings.title": "설정",
   "settings.language": "언어",
   "settings.default_format": "기본 압축 형식",
+  "settings.split_size_mb": "분할 크기 MB (0은 사용 안 함)",
+  "settings.output_conflict_policy": "같은 이름 압축파일 처리",
+  "settings.output_conflict_append": "사본으로 추가",
+  "settings.output_conflict_overwrite": "덮어쓰기",
+  "settings.output_conflict_ask": "항상 물어보기",
+  "conflict.ask_title": "같은 이름의 압축파일이 있으면 어떻게 할까요?",
+  "conflict.ask_message": "사본으로 추가하거나 기존 파일을 덮어쓸 수 있습니다.",
+  "conflict.append": "사본으로 추가",
+  "conflict.overwrite": "덮어쓰기",
   "settings.save": "저장",
   "settings.cancel": "취소"
 }

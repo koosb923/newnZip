@@ -93,6 +93,7 @@ static CentralList parse_central_directory(FILE *file) {
         uint16_t name_length = read_u16(buffer + cursor + 28);
         uint16_t extra_length = read_u16(buffer + cursor + 30);
         uint16_t comment_length = read_u16(buffer + cursor + 32);
+        uint32_t external_attributes = read_u32(buffer + cursor + 38);
         uint32_t local_offset = read_u32(buffer + cursor + 42);
 
         char *name = malloc(name_length + 1);
@@ -110,6 +111,7 @@ static CentralList parse_central_directory(FILE *file) {
         entry.compressed_size = compressed_size;
         entry.uncompressed_size = uncompressed_size;
         entry.local_header_offset = local_offset;
+        entry.external_attributes = external_attributes;
         entry.method = method;
         entry.mod_time = mod_time;
         entry.mod_date = mod_date;
@@ -119,6 +121,24 @@ static CentralList parse_central_directory(FILE *file) {
     }
     free(buffer);
     return list;
+}
+
+static bool entry_is_symlink(const CentralEntry *entry) {
+    mode_t mode = (mode_t) ((entry->external_attributes >> 16) & 0xffffu);
+    return (mode & S_IFMT) == S_IFLNK;
+}
+
+static char *read_stored_payload(FILE *archive, uint32_t size) {
+    char *payload = malloc((size_t) size + 1);
+    if (!payload) {
+        fail("out of memory");
+    }
+    if (size > 0 && fread(payload, 1, size, archive) != size) {
+        free(payload);
+        fail_errno("failed to read stored bytes");
+    }
+    payload[size] = '\0';
+    return payload;
 }
 
 static void copy_stored_bytes(FILE *archive, FILE *output, uint32_t size, unsigned char *buffer, size_t chunk_size) {
@@ -204,6 +224,28 @@ static void extract_entry(
 
     char *target_path = join_path(destination, entry->name);
     ensure_parent_directories(target_path);
+
+    if (entry_is_symlink(entry)) {
+        if (entry->method != ZIP_METHOD_STORE) {
+            free(target_path);
+            fail("unsupported symlink compression method");
+        }
+        char *link_target = read_stored_payload(archive, entry->compressed_size);
+        if (unlink(target_path) != 0 && errno != ENOENT) {
+            free(link_target);
+            free(target_path);
+            fail_errno(target_path);
+        }
+        if (symlink(link_target, target_path) != 0) {
+            free(link_target);
+            free(target_path);
+            fail_errno(target_path);
+        }
+        free(link_target);
+        free(target_path);
+        return;
+    }
+
     FILE *output = fopen(target_path, "wb");
     if (!output) {
         free(target_path);

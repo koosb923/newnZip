@@ -10,6 +10,7 @@ struct DropAreaView: View {
     let statusText: String
     let onDropURLs: ([URL]) -> Void
     let onTap: () -> Void
+    let onCancel: () -> Void
 
     var body: some View {
         RoundedRectangle(cornerRadius: 14)
@@ -25,6 +26,12 @@ struct DropAreaView: View {
                             .foregroundStyle(.secondary)
                             .multilineTextAlignment(.center)
                             .padding(.horizontal, 20)
+                        Button(role: .cancel) {
+                            onCancel()
+                        } label: {
+                            Label(Localizer.shared.text("button.cancel_operation"), systemImage: "xmark.circle")
+                        }
+                        .keyboardShortcut(.cancelAction)
                     } else if isCompleted {
                         Image(systemName: "checkmark.circle")
                             .font(.system(size: 54))
