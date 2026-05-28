@@ -8,6 +8,7 @@ typedef struct {
     size_t next_index;
     pthread_mutex_t mutex;
     ProgressState *progress;
+    size_t chunk_size;
 } ExtractQueue;
 
 static unsigned char *read_archive_tail(FILE *file, size_t *tail_size, long *archive_size) {
@@ -120,11 +121,10 @@ static CentralList parse_central_directory(FILE *file) {
     return list;
 }
 
-static void copy_stored_bytes(FILE *archive, FILE *output, uint32_t size) {
-    unsigned char buffer[CHUNK_SIZE];
+static void copy_stored_bytes(FILE *archive, FILE *output, uint32_t size, unsigned char *buffer, size_t chunk_size) {
     uint32_t remaining = size;
     while (remaining > 0) {
-        size_t chunk = remaining > CHUNK_SIZE ? CHUNK_SIZE : remaining;
+        size_t chunk = remaining > chunk_size ? chunk_size : remaining;
         if (fread(buffer, 1, chunk, archive) != chunk) {
             fail_errno("failed to read stored bytes");
         }
@@ -135,9 +135,7 @@ static void copy_stored_bytes(FILE *archive, FILE *output, uint32_t size) {
     }
 }
 
-static void inflate_stream_to_file(FILE *archive, FILE *output, uint32_t compressed_size) {
-    unsigned char in_buffer[CHUNK_SIZE];
-    unsigned char out_buffer[CHUNK_SIZE];
+static void inflate_stream_to_file(FILE *archive, FILE *output, uint32_t compressed_size, unsigned char *in_buffer, unsigned char *out_buffer, size_t chunk_size) {
     z_stream stream;
     memset(&stream, 0, sizeof(stream));
     if (inflateInit2(&stream, -MAX_WBITS) != Z_OK) {
@@ -147,7 +145,7 @@ static void inflate_stream_to_file(FILE *archive, FILE *output, uint32_t compres
     uint32_t remaining = compressed_size;
     int finished = 0;
     while (!finished && remaining > 0) {
-        size_t chunk = remaining > CHUNK_SIZE ? CHUNK_SIZE : remaining;
+        size_t chunk = remaining > chunk_size ? chunk_size : remaining;
         if (fread(in_buffer, 1, chunk, archive) != chunk) {
             inflateEnd(&stream);
             fail_errno("failed to read compressed bytes");
@@ -158,7 +156,7 @@ static void inflate_stream_to_file(FILE *archive, FILE *output, uint32_t compres
 
         while (stream.avail_in > 0 || (remaining == 0 && !finished)) {
             stream.next_out = out_buffer;
-            stream.avail_out = CHUNK_SIZE;
+            stream.avail_out = (uInt) chunk_size;
             int result = inflate(&stream, Z_NO_FLUSH);
             if (result == Z_STREAM_END) {
                 finished = 1;
@@ -166,7 +164,7 @@ static void inflate_stream_to_file(FILE *archive, FILE *output, uint32_t compres
                 inflateEnd(&stream);
                 fail("failed to inflate archive entry");
             }
-            size_t have = CHUNK_SIZE - stream.avail_out;
+            size_t have = chunk_size - stream.avail_out;
             if (have > 0 && fwrite(out_buffer, 1, have, output) != have) {
                 inflateEnd(&stream);
                 fail_errno("failed to write extracted file");
@@ -180,7 +178,14 @@ static void inflate_stream_to_file(FILE *archive, FILE *output, uint32_t compres
     inflateEnd(&stream);
 }
 
-static void extract_entry(FILE *archive, const CentralEntry *entry, const char *destination) {
+static void extract_entry(
+    FILE *archive,
+    const CentralEntry *entry,
+    const char *destination,
+    unsigned char *input_buffer,
+    unsigned char *output_buffer,
+    size_t chunk_size
+) {
     if (fseek(archive, entry->local_header_offset, SEEK_SET) != 0) {
         fail_errno("failed to seek local header");
     }
@@ -206,9 +211,9 @@ static void extract_entry(FILE *archive, const CentralEntry *entry, const char *
     }
 
     if (entry->method == ZIP_METHOD_STORE) {
-        copy_stored_bytes(archive, output, entry->compressed_size);
+        copy_stored_bytes(archive, output, entry->compressed_size, input_buffer, chunk_size);
     } else if (entry->method == ZIP_METHOD_DEFLATE) {
-        inflate_stream_to_file(archive, output, entry->compressed_size);
+        inflate_stream_to_file(archive, output, entry->compressed_size, input_buffer, output_buffer, chunk_size);
     } else {
         fclose(output);
         free(target_path);
@@ -237,17 +242,44 @@ static void *extract_worker_main(void *raw_queue) {
         fail_errno(queue->archive_path);
     }
 
+    unsigned char *input_buffer = malloc(queue->chunk_size);
+    unsigned char *output_buffer = malloc(queue->chunk_size);
+    if (!input_buffer || !output_buffer) {
+        fail("메모리가 부족합니다");
+    }
+
     while (1) {
         size_t index = next_extract_index(queue);
         if (index == SIZE_MAX) {
             break;
         }
-        extract_entry(archive, &queue->entries->items[index], queue->destination);
+        extract_entry(
+            archive,
+            &queue->entries->items[index],
+            queue->destination,
+            input_buffer,
+            output_buffer,
+            queue->chunk_size
+        );
         progress_step(queue->progress, "extract", queue->entries->items[index].name);
     }
 
+    free(input_buffer);
+    free(output_buffer);
     fclose(archive);
     return NULL;
+}
+
+static int compare_entry_size_desc(const void *left, const void *right) {
+    const CentralEntry *a = left;
+    const CentralEntry *b = right;
+    if (a->compressed_size < b->compressed_size) {
+        return 1;
+    }
+    if (a->compressed_size > b->compressed_size) {
+        return -1;
+    }
+    return strcmp(a->name, b->name);
 }
 
 void command_list(const char *archive_path) {
@@ -281,17 +313,26 @@ void command_extract(const char *archive_path, const char *destination, const Ru
     CentralList entries = parse_central_directory(file);
     fclose(file);
 
+    qsort(entries.items, entries.count, sizeof(CentralEntry), compare_entry_size_desc);
+    RuntimeOptions tuned_options = *options;
+    uint64_t total_size = 0;
+    for (size_t i = 0; i < entries.count; i++) {
+        total_size += entries.items[i].compressed_size;
+    }
+    tune_runtime_for_source_count(&tuned_options, entries.count, total_size);
+
     ExtractQueue queue;
     queue.archive_path = archive_path;
     queue.destination = destination;
     queue.entries = &entries;
     queue.next_index = 0;
+    queue.chunk_size = tuned_options.chunk_size;
     ProgressState progress;
     progress_state_init(&progress, entries.count);
     queue.progress = &progress;
     pthread_mutex_init(&queue.mutex, NULL);
 
-    int worker_count = options->thread_count;
+    int worker_count = tuned_options.thread_count;
     if ((size_t) worker_count > entries.count) {
         worker_count = (int) entries.count;
     }
@@ -322,7 +363,11 @@ void command_extract(const char *archive_path, const char *destination, const Ru
     progress_state_destroy(&progress);
     free(threads);
 
-    printf("해제 완료: %zu개 항목 -> %s (%d개 스레드)\n", entries.count, destination, worker_count);
+    printf("해제 완료: %zu개 항목 -> %s (%d개 스레드, %s 모드)\n",
+           entries.count,
+           destination,
+           worker_count,
+           tuned_options.performance_mode);
 
     free_central_list(&entries);
 }

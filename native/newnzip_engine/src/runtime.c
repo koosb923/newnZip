@@ -21,8 +21,16 @@ int detect_cpu_count(void) {
 
 RuntimeOptions default_runtime_options(void) {
     RuntimeOptions options;
-    options.thread_count = detect_cpu_count();
-    options.compression_level = Z_DEFAULT_COMPRESSION;
+    options.detected_cpu_count = detect_cpu_count();
+    options.thread_count = options.detected_cpu_count;
+    options.compression_level = 3;
+    options.chunk_size = CHUNK_SIZE;
+#if defined(__APPLE__)
+    options.small_file_threshold = 512 * 1024u;
+#else
+    options.small_file_threshold = 256 * 1024u;
+#endif
+    options.performance_mode = "auto";
     return options;
 }
 
@@ -37,6 +45,67 @@ int parse_thread_argument(const char *value, const RuntimeOptions *defaults) {
         fail("스레드 수는 1부터 64 사이의 정수여야 합니다");
     }
     return (int) parsed;
+}
+
+void apply_performance_mode(RuntimeOptions *options, const char *mode_name) {
+    if (!mode_name || strcmp(mode_name, "auto") == 0) {
+        options->performance_mode = "auto";
+        options->thread_count = options->detected_cpu_count;
+        options->compression_level = 3;
+        options->small_file_threshold = 512 * 1024u;
+        return;
+    }
+    if (strcmp(mode_name, "balanced") == 0) {
+        options->performance_mode = "balanced";
+        options->thread_count = options->detected_cpu_count > 8 ? 8 : options->detected_cpu_count;
+        options->compression_level = 4;
+        options->small_file_threshold = 512 * 1024u;
+        return;
+    }
+    if (strcmp(mode_name, "max") == 0) {
+        options->performance_mode = "max";
+        options->thread_count = options->detected_cpu_count;
+        options->compression_level = 6;
+        options->small_file_threshold = 1024 * 1024u;
+        return;
+    }
+    if (strcmp(mode_name, "low-memory") == 0) {
+        options->performance_mode = "low-memory";
+        options->thread_count = options->detected_cpu_count > 4 ? 4 : options->detected_cpu_count;
+        if (options->thread_count < 1) {
+            options->thread_count = 1;
+        }
+        options->compression_level = 1;
+        options->small_file_threshold = 128 * 1024u;
+        return;
+    }
+    fail("지원하지 않는 성능 모드입니다. auto, balanced, max, low-memory 중 하나를 사용하세요");
+}
+
+void tune_runtime_for_source_count(RuntimeOptions *options, size_t source_count, uint64_t total_size) {
+    if (source_count == 0) {
+        return;
+    }
+
+    uint64_t average_size = total_size / source_count;
+    if (strcmp(options->performance_mode, "auto") == 0) {
+        if (source_count > 4000 || average_size < 64 * 1024u) {
+            options->thread_count = options->detected_cpu_count > 6 ? 6 : options->detected_cpu_count;
+            options->compression_level = 1;
+            options->small_file_threshold = 1024 * 1024u;
+        } else if (total_size > 2ull * 1024ull * 1024ull * 1024ull) {
+            options->thread_count = options->detected_cpu_count;
+            options->compression_level = 4;
+            options->small_file_threshold = 256 * 1024u;
+        }
+    }
+
+    if ((size_t) options->thread_count > source_count) {
+        options->thread_count = (int) source_count;
+    }
+    if (options->thread_count < 1) {
+        options->thread_count = 1;
+    }
 }
 
 char *create_temp_path(const char *prefix) {

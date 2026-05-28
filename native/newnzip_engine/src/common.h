@@ -5,6 +5,7 @@
 #include <errno.h>
 #include <limits.h>
 #include <pthread.h>
+#include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -26,6 +27,7 @@
 typedef struct {
     char *path;
     char *archive_name;
+    uint64_t size;
 } SourceEntry;
 
 typedef struct {
@@ -46,8 +48,12 @@ typedef struct {
 } CentralList;
 
 typedef struct {
+    int detected_cpu_count;
     int thread_count;
     int compression_level;
+    size_t chunk_size;
+    size_t small_file_threshold;
+    const char *performance_mode;
 } RuntimeOptions;
 
 typedef struct {
@@ -76,11 +82,15 @@ double monotonic_seconds(void);
 int detect_cpu_count(void);
 RuntimeOptions default_runtime_options(void);
 int parse_thread_argument(const char *value, const RuntimeOptions *defaults);
+void apply_performance_mode(RuntimeOptions *options, const char *mode_name);
+void tune_runtime_for_source_count(RuntimeOptions *options, size_t source_count, uint64_t total_size);
 char *create_temp_path(const char *prefix);
 void remove_file_if_exists(const char *path);
 void remove_tree(const char *path);
 void progress_state_init(ProgressState *state, size_t total);
 void progress_state_destroy(ProgressState *state);
 void progress_step(ProgressState *state, const char *stage, const char *name);
+uint64_t total_source_size(const SourceEntry *sources, size_t count);
+void sort_sources_by_size_desc(SourceEntry *items, size_t count);
 
 #endif

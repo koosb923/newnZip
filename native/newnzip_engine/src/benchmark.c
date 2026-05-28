@@ -22,18 +22,6 @@ static char *create_temp_directory(void) {
     return pattern;
 }
 
-static uint64_t total_source_size(SourceEntry *sources, size_t count) {
-    uint64_t total = 0;
-    for (size_t i = 0; i < count; i++) {
-        struct stat item_stat;
-        if (stat(sources[i].path, &item_stat) != 0) {
-            fail_errno(sources[i].path);
-        }
-        total += (uint64_t) item_stat.st_size;
-    }
-    return total;
-}
-
 void command_benchmark(int argc, char **argv, const RuntimeOptions *options) {
     if (argc < 4) {
         fail("사용법: newnzip-engine benchmark output.zip <파일-또는-폴더>...");
@@ -74,6 +62,7 @@ void command_benchmark(int argc, char **argv, const RuntimeOptions *options) {
     printf("압축 시간: %.3f초, 처리량: %.2f MiB/s\n", create_elapsed, create_speed);
     printf("해제 시간: %.3f초, 처리량: %.2f MiB/s\n", extract_elapsed, extract_speed);
     printf("사용 스레드: %d\n", options->thread_count);
+    printf("성능 모드: %s\n", options->performance_mode);
 
     remove_tree(extract_dir);
     free(extract_dir);

@@ -160,6 +160,7 @@ void collect_sources(const char *path, const char *archive_root, SourceEntry **i
         }
         (*items)[*count].path = duplicate_string(path);
         (*items)[*count].archive_name = duplicate_string(archive_root);
+        (*items)[*count].size = (uint64_t) item_stat.st_size;
         *count += 1;
         return;
     }
@@ -193,4 +194,28 @@ void free_sources(SourceEntry *items, size_t count) {
         free(items[i].archive_name);
     }
     free(items);
+}
+
+uint64_t total_source_size(const SourceEntry *sources, size_t count) {
+    uint64_t total = 0;
+    for (size_t i = 0; i < count; i++) {
+        total += sources[i].size;
+    }
+    return total;
+}
+
+static int compare_source_size_desc(const void *left, const void *right) {
+    const SourceEntry *a = left;
+    const SourceEntry *b = right;
+    if (a->size < b->size) {
+        return 1;
+    }
+    if (a->size > b->size) {
+        return -1;
+    }
+    return strcmp(a->archive_name, b->archive_name);
+}
+
+void sort_sources_by_size_desc(SourceEntry *items, size_t count) {
+    qsort(items, count, sizeof(SourceEntry), compare_source_size_desc);
 }

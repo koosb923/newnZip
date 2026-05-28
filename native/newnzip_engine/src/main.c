@@ -11,6 +11,7 @@ static void print_usage(void) {
     fprintf(stderr, "  newnzip-engine benchmark output.zip <파일-또는-폴더>...\n");
     fprintf(stderr, "선택 옵션:\n");
     fprintf(stderr, "  --threads=N  병렬 처리 스레드 수 지정\n");
+    fprintf(stderr, "  --mode=auto|balanced|max|low-memory  성능 모드 지정\n");
 }
 
 int main(int argc, char **argv) {
@@ -24,6 +25,14 @@ int main(int argc, char **argv) {
     if (strncmp(argv[1], "--threads=", 10) == 0) {
         options.thread_count = parse_thread_argument(argv[1] + 10, &options);
         command_index = 2;
+    }
+    if (argc > command_index && strncmp(argv[command_index], "--mode=", 7) == 0) {
+        apply_performance_mode(&options, argv[command_index] + 7);
+        command_index += 1;
+    }
+    if (argc > command_index && strncmp(argv[command_index], "--threads=", 10) == 0) {
+        options.thread_count = parse_thread_argument(argv[command_index] + 10, &options);
+        command_index += 1;
     }
     if (argc <= command_index + 1) {
         print_usage();
