@@ -188,6 +188,12 @@ static CentralList parse_central_directory(FILE *file) {
         char *name = normalize_archive_name(raw_name);
         free(raw_name);
 
+        if (should_exclude_archive_path(name, name)) {
+            free(name);
+            cursor += 46 + name_length + extra_length + comment_length;
+            continue;
+        }
+
         CentralEntry entry;
         entry.name = name;
         entry.crc32 = crc;
@@ -210,6 +216,15 @@ static CentralList parse_central_directory(FILE *file) {
 static bool entry_is_symlink(const CentralEntry *entry) {
     mode_t mode = (mode_t) ((entry->external_attributes >> 16) & 0xffffu);
     return (mode & S_IFMT) == S_IFLNK;
+}
+
+static bool entry_is_directory(const CentralEntry *entry) {
+    size_t length = strlen(entry->name);
+    if (length > 0 && entry->name[length - 1] == '/') {
+        return true;
+    }
+    mode_t mode = (mode_t) ((entry->external_attributes >> 16) & 0xffffu);
+    return (mode & S_IFMT) == S_IFDIR;
 }
 
 static char *read_stored_payload(FILE *archive, uint64_t size) {
@@ -311,6 +326,15 @@ static void extract_entry(
 
     char *target_path = join_path(destination, entry->name);
     ensure_parent_directories(target_path);
+
+    if (entry_is_directory(entry)) {
+        if (mkdir(target_path, 0755) != 0 && errno != EEXIST) {
+            free(target_path);
+            fail_errno(target_path);
+        }
+        free(target_path);
+        return;
+    }
 
     if (entry_is_symlink(entry)) {
         if (entry->method != ZIP_METHOD_STORE) {

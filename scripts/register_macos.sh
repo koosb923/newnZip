@@ -174,31 +174,7 @@ if [ "\$#" -lt 1 ]; then
   osascript -e 'display alert "선택된 파일이나 폴더를 받지 못했습니다."'
   exit 0
 fi
-FIRST="\$1"
-echo "\$(date '+%F %T') first=\$FIRST" >> "\$LOG"
-PARENT=\$(dirname "\$FIRST")
-NAME=\$(basename "\$FIRST")
-BASE="\${NAME%.*}"
-if [ -d "\$FIRST" ]; then
-  BASE="\$NAME"
-fi
-OUTPUT="\$PARENT/\$BASE.zip"
-if [ -e "\$OUTPUT" ]; then
-  INDEX=2
-  while [ -e "\$PARENT/\$BASE \$INDEX.zip" ]; do
-    INDEX=\$((INDEX + 1))
-  done
-  OUTPUT="\$PARENT/\$BASE \$INDEX.zip"
-fi
-echo "\$(date '+%F %T') output=\$OUTPUT" >> "\$LOG"
-if "\$ENGINE" create "\$OUTPUT" "\$@" >> "\$LOG" 2>&1; then
-  /usr/bin/open -R "\$OUTPUT"
-  osascript -e "display notification \"\$OUTPUT\" with title \"newnZip 압축 완료\""
-else
-  echo "\$(date '+%F %T') compress failed status=\$?" >> "\$LOG"
-  osascript -e 'display alert "newnZip 압축에 실패했습니다."'
-  exit 1
-fi
+open -n -a "\$APP_PATH" --args --hud-compress "\$@"
 EOF
 )
 
@@ -227,44 +203,7 @@ if [ "\$#" -lt 1 ]; then
   osascript -e 'display alert "선택된 압축파일을 받지 못했습니다."'
   exit 0
 fi
-for item in "\$@"; do
-  echo "\$(date '+%F %T') archive=\$item" >> "\$LOG"
-  DIR=\$(dirname "\$item")
-  NAME=\$(basename "\$item")
-  LOWER=\$(printf "%s" "\$NAME" | tr '[:upper:]' '[:lower:]')
-  BASE="\${NAME%.*}"
-  if [[ "\$LOWER" == *.zip.001 || "\$LOWER" == *.7z.001 || "\$LOWER" == *.tar.gz || "\$LOWER" == *.tar.bz2 || "\$LOWER" == *.tar.xz ]]; then
-    BASE="\${BASE%.*}"
-  fi
-  DEST="\$DIR/\$BASE"
-  if [ -e "\$DEST" ]; then
-    INDEX=2
-    while [ -e "\$DIR/\$BASE \$INDEX" ]; do
-      INDEX=\$((INDEX + 1))
-    done
-    DEST="\$DIR/\$BASE \$INDEX"
-  fi
-  echo "\$(date '+%F %T') destination=\$DEST" >> "\$LOG"
-  if [[ "\$LOWER" == *.zip && -x "\$ENGINE" ]]; then
-    "\$ENGINE" extract "\$item" "\$DEST" >> "\$LOG" 2>&1 || {
-      echo "\$(date '+%F %T') engine extract failed status=\$?" >> "\$LOG"
-      osascript -e 'display alert "newnZip 압축 해제에 실패했습니다."'
-      exit 1
-    }
-  elif [ -n "\$SEVENZIP" ]; then
-    "\$SEVENZIP" x "\$item" "-o\$DEST" -y >> "\$LOG" 2>&1 || {
-      echo "\$(date '+%F %T') 7z extract failed status=\$?" >> "\$LOG"
-      osascript -e 'display alert "newnZip 압축 해제에 실패했습니다."'
-      exit 1
-    }
-  else
-    echo "\$(date '+%F %T') no extractor for \$item" >> "\$LOG"
-    osascript -e 'display alert "이 압축 파일을 풀려면 7zz 또는 7z가 필요합니다."'
-    exit 1
-  fi
-  /usr/bin/open "\$DEST"
-done
-osascript -e 'display notification "선택한 항목 처리가 끝났습니다." with title "newnZip 압축 풀기 완료"'
+open -n -a "\$APP_PATH" --args --hud-extract "\$@"
 EOF
 )
 

@@ -40,7 +40,7 @@ struct ContentView: View {
             SettingsView()
         }
         .onOpenURL { url in
-            handleDrop(urls: [url])
+            openHUD(for: DropResolver.resolve(urls: [url]), urls: [url])
         }
     }
 
@@ -98,7 +98,7 @@ struct ContentView: View {
                         }
                     }
                 case .extract(let items):
-                    _ = try await EngineBridge.extract(urls: items) { line in
+                    _ = try await EngineBridge.extract(urls: items, conflictPolicy: currentConflictPolicy) { line in
                         Task { @MainActor in
                             handleEngineLine(line)
                         }
@@ -139,12 +139,32 @@ struct ContentView: View {
         operationTask?.cancel()
     }
 
+    private func openHUD(for intent: DropIntent?, urls: [URL]) {
+        guard let intent else {
+            handleDrop(urls: urls)
+            return
+        }
+        let command = switch intent {
+        case .compress: "--hud-compress"
+        case .extract: "--hud-extract"
+        }
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.arguments = [command] + urls.map(\.path)
+        NSWorkspace.shared.openApplication(at: Bundle.main.bundleURL, configuration: configuration)
+    }
+
     private func resolvedConflictPolicy(for intent: DropIntent, format: ArchiveFormat, splitSizeMB: Int) -> OutputConflictPolicy {
         guard settings.outputConflictPolicy == .ask else {
             return settings.outputConflictPolicy
         }
-        guard case .compress(let items) = intent,
-              EngineBridge.outputCollisionExists(urls: items, format: format, splitSizeMB: splitSizeMB) else {
+        let hasCollision = switch intent {
+        case .compress(let items):
+            EngineBridge.outputCollisionExists(urls: items, format: format, splitSizeMB: splitSizeMB)
+        case .extract(let items):
+            EngineBridge.extractionCollisionExists(urls: items)
+        }
+
+        guard hasCollision else {
             return .append
         }
 

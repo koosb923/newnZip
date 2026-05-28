@@ -16,9 +16,9 @@ public partial class App : Application
         var command = ArchiveCommandService.Parse(Environment.GetCommandLineArgs().Skip(1));
         if (command.Kind != ArchiveCommandKind.None)
         {
-            var result = await ArchiveCommandService.ExecuteAsync(command);
-            ArchiveCommandService.RevealResult(result);
-            Exit();
+            window = new HudWindow(command);
+            window.Activate();
+            await ((HudWindow)window).RunAsync();
             return;
         }
 

@@ -54,6 +54,13 @@
                            Text="현재 기본 앱 상태를 확인 중입니다."
                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                            TextWrapping="Wrap" />
+                <ComboBox x:Name="ConflictPolicyBox"
+                          Header="같은 이름 결과 처리"
+                          SelectionChanged="ConflictPolicySelectionChanged">
+                    <ComboBoxItem Content="사본으로 추가" Tag="Append" />
+                    <ComboBoxItem Content="덮어쓰기" Tag="Overwrite" />
+                    <ComboBoxItem Content="항상 물어보기" Tag="Ask" />
+                </ComboBox>
             </StackPanel>
         </Border>
 

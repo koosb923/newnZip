@@ -44,8 +44,7 @@ struct SettingsView: View {
                     if enabled {
                         defaultAppService.setAsDefaultArchiveApp()
                     } else {
-                        defaultAppService.openSystemDefaultAppSettings()
-                        defaultAppService.refresh()
+                        defaultAppService.unsetAsDefaultArchiveApp()
                     }
                 }
             )) {

@@ -7,6 +7,7 @@ public sealed partial class MainWindow : Window
 {
     private readonly ArchiveCommand initialCommand;
     private bool updatingDefaultArchiveToggle;
+    private bool updatingConflictPolicyBox;
 
     public MainWindow(ArchiveCommand initialCommand)
     {
@@ -25,6 +26,7 @@ public sealed partial class MainWindow : Window
         }
 
         RefreshDefaultArchiveStatus();
+        RefreshConflictPolicy();
     }
 
     public async Task RunCommandAsync(ArchiveCommand command)
@@ -68,6 +70,20 @@ public sealed partial class MainWindow : Window
         }
     }
 
+    private void ConflictPolicySelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (updatingConflictPolicyBox || ConflictPolicyBox.SelectedItem is not ComboBoxItem item)
+        {
+            return;
+        }
+
+        if (Enum.TryParse<OutputConflictPolicy>(item.Tag?.ToString(), out var policy))
+        {
+            ArchiveCommandService.ConflictPolicy = policy;
+            StatusText.Text = "같은 이름 결과 처리 설정을 저장했습니다.";
+        }
+    }
+
     private void CloseClick(object sender, RoutedEventArgs e)
     {
         Close();
@@ -76,6 +92,21 @@ public sealed partial class MainWindow : Window
     private void RefreshDefaultArchiveStatus()
     {
         ApplyDefaultArchiveStatus(WindowsDefaultAppService.GetStatus());
+    }
+
+    private void RefreshConflictPolicy()
+    {
+        updatingConflictPolicyBox = true;
+        var current = ArchiveCommandService.ConflictPolicy.ToString();
+        foreach (var item in ConflictPolicyBox.Items.OfType<ComboBoxItem>())
+        {
+            if (item.Tag?.ToString() == current)
+            {
+                ConflictPolicyBox.SelectedItem = item;
+                break;
+            }
+        }
+        updatingConflictPolicyBox = false;
     }
 
     private void ApplyDefaultArchiveStatus(WindowsDefaultAppStatus status)

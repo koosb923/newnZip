@@ -39,6 +39,14 @@ struct EngineBridge {
         return FileManager.default.fileExists(atPath: collisionURL.path)
     }
 
+    static func extractionCollisionExists(urls: [URL]) -> Bool {
+        guard let first = urls.first else {
+            return false
+        }
+        let output = first.deletingLastPathComponent().appendingPathComponent(extractionDirectoryName(for: first))
+        return FileManager.default.fileExists(atPath: output.path)
+    }
+
     static func compress(
         urls: [URL],
         format: ArchiveFormat,
@@ -78,11 +86,16 @@ struct EngineBridge {
         return try await run(executable: engineURL, arguments: args, onLine: onLine)
     }
 
-    static func extract(urls: [URL], onLine: @escaping @Sendable (String) -> Void) async throws -> EngineResult {
+    static func extract(
+        urls: [URL],
+        conflictPolicy: OutputConflictPolicy = .append,
+        onLine: @escaping @Sendable (String) -> Void
+    ) async throws -> EngineResult {
         guard let first = urls.first else {
             return EngineResult(summary: "입력 항목이 없습니다.", logLines: [])
         }
-        let output = first.deletingLastPathComponent().appendingPathComponent(extractionDirectoryName(for: first))
+        let requestedOutput = first.deletingLastPathComponent().appendingPathComponent(extractionDirectoryName(for: first))
+        let output = resolvedExtractionOutputURL(for: requestedOutput, conflictPolicy: conflictPolicy)
 
         if let engineURL {
             let args = ["extract", first.path, output.path]
@@ -108,6 +121,32 @@ struct EngineBridge {
             return url.deletingPathExtension().lastPathComponent
         }
         return url.deletingPathExtension().lastPathComponent
+    }
+
+    private static func resolvedExtractionOutputURL(
+        for requestedOutput: URL,
+        conflictPolicy: OutputConflictPolicy
+    ) -> URL {
+        let fileManager = FileManager.default
+
+        if conflictPolicy == .overwrite {
+            try? fileManager.removeItem(at: requestedOutput)
+            return requestedOutput
+        }
+
+        guard fileManager.fileExists(atPath: requestedOutput.path) else {
+            return requestedOutput
+        }
+
+        let directory = requestedOutput.deletingLastPathComponent()
+        let baseName = requestedOutput.lastPathComponent
+        for index in 2...9999 {
+            let candidate = directory.appendingPathComponent("\(baseName) \(index)")
+            if !fileManager.fileExists(atPath: candidate.path) {
+                return candidate
+            }
+        }
+        return requestedOutput
     }
 
     private static func isSplitArchiveStart(_ url: URL) -> Bool {

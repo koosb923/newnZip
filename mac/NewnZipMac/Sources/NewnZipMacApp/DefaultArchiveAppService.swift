@@ -37,6 +37,11 @@ final class DefaultArchiveAppService: ObservableObject {
         Bundle.main.bundleIdentifier ?? "com.newntool.newnzip"
     }
 
+    private var archiveUtilityBundleIdentifier: String {
+        let archiveUtilityURL = URL(fileURLWithPath: "/System/Library/CoreServices/Applications/Archive Utility.app")
+        return Bundle(url: archiveUtilityURL)?.bundleIdentifier ?? "com.apple.archiveutility"
+    }
+
     private init() {
         refresh()
     }
@@ -60,7 +65,10 @@ final class DefaultArchiveAppService: ObservableObject {
         refresh()
     }
 
-    func openSystemDefaultAppSettings() {
-        NSWorkspace.shared.activateFileViewerSelecting([Bundle.main.bundleURL])
+    func unsetAsDefaultArchiveApp() {
+        for type in archiveTypes {
+            LSSetDefaultRoleHandlerForContentType(type as CFString, .all, archiveUtilityBundleIdentifier as CFString)
+        }
+        refresh()
     }
 }
