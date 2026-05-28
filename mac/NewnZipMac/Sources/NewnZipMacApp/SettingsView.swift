@@ -36,6 +36,8 @@ struct SettingsView: View {
                 }
             }
 
+            Toggle(Localizer.shared.text("settings.drag_overlay"), isOn: $settings.dragOverlayEnabled)
+
             Divider()
 
             Toggle(isOn: Binding(

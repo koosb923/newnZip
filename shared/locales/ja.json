@@ -115,6 +115,7 @@
   "settings.output_conflict_append": "コピーとして追加",
   "settings.output_conflict_overwrite": "上書き",
   "settings.output_conflict_ask": "常に確認",
+  "settings.drag_overlay": "ファイルドラッグオーバーレイを表示",
   "settings.default_app": "既定のアーカイブアプリとして使用",
   "settings.default_app_active": "newnZip は対応アーカイブ形式の既定アプリです。",
   "settings.default_app_inactive": "現在、別のアプリが既定のアーカイブアプリに設定されています。",

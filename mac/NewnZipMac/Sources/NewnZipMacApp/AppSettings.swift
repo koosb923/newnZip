@@ -70,6 +70,13 @@ final class AppSettings: ObservableObject {
         didSet { UserDefaults.standard.set(zipMethod.rawValue, forKey: "zip_method") }
     }
 
+    @Published var dragOverlayEnabled: Bool {
+        didSet {
+            UserDefaults.standard.set(dragOverlayEnabled, forKey: "drag_overlay_enabled")
+            NotificationCenter.default.post(name: .dragOverlaySettingChanged, object: nil)
+        }
+    }
+
     @Published var language: AppLanguage {
         didSet {
             UserDefaults.standard.set(language.rawValue, forKey: "language")
@@ -85,10 +92,15 @@ final class AppSettings: ObservableObject {
         self.outputConflictPolicy = OutputConflictPolicy(rawValue: savedConflictPolicy ?? "append") ?? .append
         let savedZipMethod = UserDefaults.standard.string(forKey: "zip_method")
         self.zipMethod = ZipMethod(rawValue: savedZipMethod ?? "auto") ?? .auto
+        self.dragOverlayEnabled = UserDefaults.standard.object(forKey: "drag_overlay_enabled") as? Bool ?? true
 
         let savedLanguage = UserDefaults.standard.string(forKey: "language")
         let resolvedLanguage = AppLanguage(rawValue: savedLanguage ?? "system") ?? .system
         self.language = resolvedLanguage
         Localizer.shared.setLanguage(resolvedLanguage)
     }
+}
+
+extension Notification.Name {
+    static let dragOverlaySettingChanged = Notification.Name("NewnZipDragOverlaySettingChanged")
 }

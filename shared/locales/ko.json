@@ -115,6 +115,7 @@
   "settings.output_conflict_append": "사본으로 추가",
   "settings.output_conflict_overwrite": "덮어쓰기",
   "settings.output_conflict_ask": "항상 물어보기",
+  "settings.drag_overlay": "파일 드래그 오버레이 표시",
   "settings.default_app": "기본 압축 앱으로 사용",
   "settings.default_app_active": "현재 newnZip이 지원 압축 형식의 기본 앱입니다.",
   "settings.default_app_inactive": "현재 다른 앱이 기본 압축 앱으로 설정되어 있습니다.",

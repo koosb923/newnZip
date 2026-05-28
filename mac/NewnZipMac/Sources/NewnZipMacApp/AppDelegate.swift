@@ -5,8 +5,10 @@ import SwiftUI
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var mainWindow: NSWindow?
     private var hudWindows: [NSWindow] = []
+    private var dropOverlayController: DropOverlayController?
     private var delayedMainWindow: DispatchWorkItem?
     private var receivedFileOpenEvent = false
+    private var settingsObserver: NSObjectProtocol?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         if let command = HUDCommand.parse(arguments: Array(CommandLine.arguments.dropFirst())) {
@@ -22,6 +24,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         delayedMainWindow = workItem
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.2, execute: workItem)
+        observeSettings()
+        updateDropOverlayState()
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {
@@ -100,6 +104,45 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         hudWindows.append(window)
+    }
+
+    private func startDropOverlay() {
+        guard dropOverlayController == nil else {
+            return
+        }
+        let controller = DropOverlayController { [weak self] urls in
+            self?.handleOpen(urls: urls)
+        }
+        controller.start()
+        dropOverlayController = controller
+    }
+
+    private func stopDropOverlay() {
+        dropOverlayController?.stop()
+        dropOverlayController = nil
+    }
+
+    private func updateDropOverlayState() {
+        if AppSettings.shared.dragOverlayEnabled {
+            startDropOverlay()
+        } else {
+            stopDropOverlay()
+        }
+    }
+
+    private func observeSettings() {
+        guard settingsObserver == nil else {
+            return
+        }
+        settingsObserver = NotificationCenter.default.addObserver(
+            forName: .dragOverlaySettingChanged,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.updateDropOverlayState()
+            }
+        }
     }
 
     private func configureHUDWindow(_ window: NSWindow) {

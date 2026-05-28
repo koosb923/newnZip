@@ -115,6 +115,7 @@
   "settings.output_conflict_append": "Add as copy",
   "settings.output_conflict_overwrite": "Overwrite",
   "settings.output_conflict_ask": "Always ask",
+  "settings.drag_overlay": "Show file drag overlay",
   "settings.default_app": "Use as default archive app",
   "settings.default_app_active": "newnZip is currently the default app for supported archive formats.",
   "settings.default_app_inactive": "Another app is currently set as the default archive app.",
