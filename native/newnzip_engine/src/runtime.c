@@ -25,6 +25,9 @@ RuntimeOptions default_runtime_options(void) {
     options.thread_count = options.detected_cpu_count;
     options.compression_level = 3;
     options.chunk_size = CHUNK_SIZE;
+    options.split_size = 0;
+    options.archive_format = "zip";
+    options.zip_method = "deflate";
 #if defined(__APPLE__)
     options.small_file_threshold = 512 * 1024u;
 #else
@@ -45,6 +48,33 @@ int parse_thread_argument(const char *value, const RuntimeOptions *defaults) {
         fail("스레드 수는 1부터 64 사이의 정수여야 합니다");
     }
     return (int) parsed;
+}
+
+uint64_t parse_size_argument(const char *value) {
+    if (!value || !*value) {
+        return 0;
+    }
+
+    char *end = NULL;
+    double parsed = strtod(value, &end);
+    if (!end || parsed <= 0.0) {
+        fail("크기는 0보다 큰 숫자여야 합니다");
+    }
+
+    uint64_t multiplier = 1;
+    if (*end != '\0') {
+        if (strcasecmp(end, "k") == 0 || strcasecmp(end, "kb") == 0) {
+            multiplier = 1024ull;
+        } else if (strcasecmp(end, "m") == 0 || strcasecmp(end, "mb") == 0) {
+            multiplier = 1024ull * 1024ull;
+        } else if (strcasecmp(end, "g") == 0 || strcasecmp(end, "gb") == 0) {
+            multiplier = 1024ull * 1024ull * 1024ull;
+        } else {
+            fail("크기 단위는 k, m, g 중 하나여야 합니다");
+        }
+    }
+
+    return (uint64_t) (parsed * (double) multiplier);
 }
 
 void apply_performance_mode(RuntimeOptions *options, const char *mode_name) {

@@ -72,6 +72,7 @@ struct ContentView: View {
         progressValue = 0.0
 
         let currentFormat = settings.defaultFormat
+        let currentZipMethod = settings.zipMethod
         let currentSplitSizeMB = settings.splitSizeMB
         let currentConflictPolicy = resolvedConflictPolicy(for: intent, format: currentFormat, splitSizeMB: currentSplitSizeMB)
         switch intent {
@@ -88,6 +89,7 @@ struct ContentView: View {
                     _ = try await EngineBridge.compress(
                         urls: items,
                         format: currentFormat,
+                        zipMethod: currentZipMethod,
                         splitSizeMB: currentSplitSizeMB,
                         conflictPolicy: currentConflictPolicy
                     ) { line in

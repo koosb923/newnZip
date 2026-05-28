@@ -11,6 +11,12 @@ typedef struct {
     size_t chunk_size;
 } ExtractQueue;
 
+typedef struct {
+    uint64_t entry_count;
+    uint64_t central_size;
+    uint64_t central_offset;
+} CentralDirectoryLocation;
+
 static unsigned char *read_archive_tail(FILE *file, size_t *tail_size, long *archive_size) {
     if (fseek(file, 0, SEEK_END) != 0) {
         fail_errno("failed to seek archive");
@@ -51,6 +57,69 @@ static long find_eocd_offset(const unsigned char *tail, size_t tail_size, long a
     return -1;
 }
 
+static CentralDirectoryLocation read_zip64_central_directory_location(FILE *file, long eocd_offset) {
+    if (eocd_offset < 20) {
+        fail("zip64 locator not found");
+    }
+    if (fseek(file, eocd_offset - 20, SEEK_SET) != 0) {
+        fail_errno("failed to seek zip64 locator");
+    }
+    unsigned char locator[20];
+    if (fread(locator, 1, sizeof(locator), file) != sizeof(locator)) {
+        fail_errno("failed to read zip64 locator");
+    }
+    if (read_u32(locator) != ZIP64_END_OF_CENTRAL_DIRECTORY_LOCATOR) {
+        fail("zip64 locator not found");
+    }
+
+    uint64_t zip64_eocd_offset = read_u64(locator + 8);
+    if (fseek(file, (long) zip64_eocd_offset, SEEK_SET) != 0) {
+        fail_errno("failed to seek zip64 eocd");
+    }
+
+    unsigned char fixed[56];
+    if (fread(fixed, 1, sizeof(fixed), file) != sizeof(fixed)) {
+        fail_errno("failed to read zip64 eocd");
+    }
+    if (read_u32(fixed) != ZIP64_END_OF_CENTRAL_DIRECTORY) {
+        fail("invalid zip64 eocd");
+    }
+
+    CentralDirectoryLocation location;
+    location.entry_count = read_u64(fixed + 32);
+    location.central_size = read_u64(fixed + 40);
+    location.central_offset = read_u64(fixed + 48);
+    return location;
+}
+
+static void apply_zip64_extra(CentralEntry *entry, const unsigned char *extra, uint16_t extra_length) {
+    size_t cursor = 0;
+    while (cursor + 4 <= extra_length) {
+        uint16_t header_id = read_u16(extra + cursor);
+        uint16_t data_size = read_u16(extra + cursor + 2);
+        cursor += 4;
+        if (cursor + data_size > extra_length) {
+            break;
+        }
+        if (header_id == ZIP64_EXTRA_FIELD_ID) {
+            size_t data_cursor = cursor;
+            if (entry->uncompressed_size == UINT32_MAX && data_cursor + 8 <= cursor + data_size) {
+                entry->uncompressed_size = read_u64(extra + data_cursor);
+                data_cursor += 8;
+            }
+            if (entry->compressed_size == UINT32_MAX && data_cursor + 8 <= cursor + data_size) {
+                entry->compressed_size = read_u64(extra + data_cursor);
+                data_cursor += 8;
+            }
+            if (entry->local_header_offset == UINT32_MAX && data_cursor + 8 <= cursor + data_size) {
+                entry->local_header_offset = read_u64(extra + data_cursor);
+            }
+            return;
+        }
+        cursor += data_size;
+    }
+}
+
 static CentralList parse_central_directory(FILE *file) {
     size_t tail_size = 0;
     long archive_size = 0;
@@ -58,15 +127,27 @@ static CentralList parse_central_directory(FILE *file) {
     long eocd_offset = find_eocd_offset(tail, tail_size, archive_size);
     size_t eocd_in_tail = (size_t) (eocd_offset - (archive_size - (long) tail_size));
 
-    uint16_t entry_count = read_u16(tail + eocd_in_tail + 10);
-    uint32_t central_size = read_u32(tail + eocd_in_tail + 12);
-    uint32_t central_offset = read_u32(tail + eocd_in_tail + 16);
+    CentralDirectoryLocation location;
+    location.entry_count = read_u16(tail + eocd_in_tail + 10);
+    location.central_size = read_u32(tail + eocd_in_tail + 12);
+    location.central_offset = read_u32(tail + eocd_in_tail + 16);
+    bool uses_zip64 = location.entry_count == UINT16_MAX ||
+                      location.central_size == UINT32_MAX ||
+                      location.central_offset == UINT32_MAX;
     free(tail);
 
-    if (fseek(file, central_offset, SEEK_SET) != 0) {
+    if (uses_zip64) {
+        location = read_zip64_central_directory_location(file, eocd_offset);
+    }
+
+    if (location.central_size > SIZE_MAX) {
+        fail("central directory is too large");
+    }
+    if (fseek(file, (long) location.central_offset, SEEK_SET) != 0) {
         fail_errno("failed to seek central directory");
     }
 
+    size_t central_size = (size_t) location.central_size;
     unsigned char *buffer = malloc(central_size);
     if (!buffer && central_size > 0) {
         fail("out of memory");
@@ -78,7 +159,7 @@ static CentralList parse_central_directory(FILE *file) {
 
     CentralList list = {0};
     size_t cursor = 0;
-    while (cursor < central_size && list.count < entry_count) {
+    while (cursor < central_size && list.count < location.entry_count) {
         if (read_u32(buffer + cursor) != ZIP_CENTRAL_DIRECTORY_HEADER) {
             free(buffer);
             free_central_list(&list);
@@ -88,22 +169,24 @@ static CentralList parse_central_directory(FILE *file) {
         uint16_t mod_time = read_u16(buffer + cursor + 12);
         uint16_t mod_date = read_u16(buffer + cursor + 14);
         uint32_t crc = read_u32(buffer + cursor + 16);
-        uint32_t compressed_size = read_u32(buffer + cursor + 20);
-        uint32_t uncompressed_size = read_u32(buffer + cursor + 24);
+        uint64_t compressed_size = read_u32(buffer + cursor + 20);
+        uint64_t uncompressed_size = read_u32(buffer + cursor + 24);
         uint16_t name_length = read_u16(buffer + cursor + 28);
         uint16_t extra_length = read_u16(buffer + cursor + 30);
         uint16_t comment_length = read_u16(buffer + cursor + 32);
         uint32_t external_attributes = read_u32(buffer + cursor + 38);
-        uint32_t local_offset = read_u32(buffer + cursor + 42);
+        uint64_t local_offset = read_u32(buffer + cursor + 42);
 
-        char *name = malloc(name_length + 1);
-        if (!name) {
+        char *raw_name = malloc(name_length + 1);
+        if (!raw_name) {
             free(buffer);
             free_central_list(&list);
             fail("out of memory");
         }
-        memcpy(name, buffer + cursor + 46, name_length);
-        name[name_length] = '\0';
+        memcpy(raw_name, buffer + cursor + 46, name_length);
+        raw_name[name_length] = '\0';
+        char *name = normalize_archive_name(raw_name);
+        free(raw_name);
 
         CentralEntry entry;
         entry.name = name;
@@ -115,6 +198,7 @@ static CentralList parse_central_directory(FILE *file) {
         entry.method = method;
         entry.mod_time = mod_time;
         entry.mod_date = mod_date;
+        apply_zip64_extra(&entry, buffer + cursor + 46 + name_length, extra_length);
         central_list_push(&list, entry);
 
         cursor += 46 + name_length + extra_length + comment_length;
@@ -128,12 +212,15 @@ static bool entry_is_symlink(const CentralEntry *entry) {
     return (mode & S_IFMT) == S_IFLNK;
 }
 
-static char *read_stored_payload(FILE *archive, uint32_t size) {
+static char *read_stored_payload(FILE *archive, uint64_t size) {
+    if (size > SIZE_MAX - 1) {
+        fail("stored payload is too large");
+    }
     char *payload = malloc((size_t) size + 1);
     if (!payload) {
         fail("out of memory");
     }
-    if (size > 0 && fread(payload, 1, size, archive) != size) {
+    if (size > 0 && fread(payload, 1, (size_t) size, archive) != (size_t) size) {
         free(payload);
         fail_errno("failed to read stored bytes");
     }
@@ -141,36 +228,36 @@ static char *read_stored_payload(FILE *archive, uint32_t size) {
     return payload;
 }
 
-static void copy_stored_bytes(FILE *archive, FILE *output, uint32_t size, unsigned char *buffer, size_t chunk_size) {
-    uint32_t remaining = size;
+static void copy_stored_bytes(FILE *archive, FILE *output, uint64_t size, unsigned char *buffer, size_t chunk_size) {
+    uint64_t remaining = size;
     while (remaining > 0) {
-        size_t chunk = remaining > chunk_size ? chunk_size : remaining;
+        size_t chunk = remaining > chunk_size ? chunk_size : (size_t) remaining;
         if (fread(buffer, 1, chunk, archive) != chunk) {
             fail_errno("failed to read stored bytes");
         }
         if (fwrite(buffer, 1, chunk, output) != chunk) {
             fail_errno("failed to write extracted file");
         }
-        remaining -= (uint32_t) chunk;
+        remaining -= (uint64_t) chunk;
     }
 }
 
-static void inflate_stream_to_file(FILE *archive, FILE *output, uint32_t compressed_size, unsigned char *in_buffer, unsigned char *out_buffer, size_t chunk_size) {
+static void inflate_stream_to_file(FILE *archive, FILE *output, uint64_t compressed_size, unsigned char *in_buffer, unsigned char *out_buffer, size_t chunk_size) {
     z_stream stream;
     memset(&stream, 0, sizeof(stream));
     if (inflateInit2(&stream, -MAX_WBITS) != Z_OK) {
         fail("failed to initialize inflate");
     }
 
-    uint32_t remaining = compressed_size;
+    uint64_t remaining = compressed_size;
     int finished = 0;
     while (!finished && remaining > 0) {
-        size_t chunk = remaining > chunk_size ? chunk_size : remaining;
+        size_t chunk = remaining > chunk_size ? chunk_size : (size_t) remaining;
         if (fread(in_buffer, 1, chunk, archive) != chunk) {
             inflateEnd(&stream);
             fail_errno("failed to read compressed bytes");
         }
-        remaining -= (uint32_t) chunk;
+        remaining -= (uint64_t) chunk;
         stream.next_in = in_buffer;
         stream.avail_in = (uInt) chunk;
 
@@ -206,7 +293,7 @@ static void extract_entry(
     unsigned char *output_buffer,
     size_t chunk_size
 ) {
-    if (fseek(archive, entry->local_header_offset, SEEK_SET) != 0) {
+    if (fseek(archive, (long) entry->local_header_offset, SEEK_SET) != 0) {
         fail_errno("failed to seek local header");
     }
     unsigned char header[30];
@@ -332,10 +419,10 @@ void command_list(const char *archive_path) {
 
     CentralList entries = parse_central_directory(file);
     for (size_t i = 0; i < entries.count; i++) {
-        printf("%s\t%u\t%u\n",
+        printf("%s\t%llu\t%llu\n",
                entries.items[i].name,
-               entries.items[i].uncompressed_size,
-               entries.items[i].compressed_size);
+               (unsigned long long) entries.items[i].uncompressed_size,
+               (unsigned long long) entries.items[i].compressed_size);
     }
 
     free_central_list(&entries);
@@ -412,4 +499,74 @@ void command_extract(const char *archive_path, const char *destination, const Ru
            tuned_options.performance_mode);
 
     free_central_list(&entries);
+}
+
+static void join_split_files(const char *start_path, const char *destination_path, size_t chunk_size) {
+    size_t start_length = strlen(start_path);
+    if (start_length <= 4 || strcmp(start_path + start_length - 4, ".001") != 0) {
+        fail("분할 ZIP의 첫 번째 파일(.001)을 지정하세요");
+    }
+
+    char base_path[PATH_MAX];
+    if (start_length - 4 >= sizeof(base_path)) {
+        fail("path too long");
+    }
+    memcpy(base_path, start_path, start_length - 4);
+    base_path[start_length - 4] = '\0';
+
+    FILE *output = fopen(destination_path, "wb");
+    if (!output) {
+        fail_errno(destination_path);
+    }
+
+    unsigned char *buffer = malloc(chunk_size);
+    if (!buffer) {
+        fclose(output);
+        fail("메모리가 부족합니다");
+    }
+
+    for (int part = 1; part < 10000; part++) {
+        char part_path[PATH_MAX];
+        snprintf(part_path, sizeof(part_path), "%s.%03d", base_path, part);
+        FILE *input = fopen(part_path, "rb");
+        if (!input) {
+            if (part == 1) {
+                free(buffer);
+                fclose(output);
+                fail_errno(part_path);
+            }
+            break;
+        }
+
+        while (1) {
+            size_t read_size = fread(buffer, 1, chunk_size, input);
+            if (read_size > 0 && fwrite(buffer, 1, read_size, output) != read_size) {
+                fclose(input);
+                free(buffer);
+                fclose(output);
+                fail_errno(destination_path);
+            }
+            if (read_size < chunk_size) {
+                if (ferror(input)) {
+                    fclose(input);
+                    free(buffer);
+                    fclose(output);
+                    fail_errno(part_path);
+                }
+                break;
+            }
+        }
+        fclose(input);
+    }
+
+    free(buffer);
+    fclose(output);
+}
+
+void command_extract_split(const char *archive_path, const char *destination, const RuntimeOptions *options) {
+    char *joined_path = create_temp_path("newnzip-joined-");
+    join_split_files(archive_path, joined_path, options->chunk_size);
+    command_extract(joined_path, destination, options);
+    remove_file_if_exists(joined_path);
+    free(joined_path);
 }

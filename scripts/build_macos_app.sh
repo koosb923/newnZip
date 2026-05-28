@@ -19,7 +19,9 @@ clang -std=c11 -O2 -Wall -Wextra -pedantic \
   "$ROOT_DIR/native/newnzip_engine/src/zip_writer.c" \
   "$ROOT_DIR/native/newnzip_engine/src/zip_reader.c" \
   "$ROOT_DIR/native/newnzip_engine/src/benchmark.c" \
-  -lz -lpthread
+  "$ROOT_DIR/native/newnzip_engine/src/capabilities.c" \
+  "$ROOT_DIR/native/newnzip_engine/src/archive_adapter.c" \
+  -lz -lpthread -framework CoreFoundation
 
 env SDKROOT="$SDK_PATH" CLANG_MODULE_CACHE_PATH="$TMP_DIR/clang-arm64" \
   swift build -c release --triple arm64-apple-macosx14.0 \
@@ -40,6 +42,7 @@ rm -rf "$APP_PATH"
 mkdir -p \
   "$APP_PATH/Contents/MacOS" \
   "$APP_PATH/Contents/Frameworks/newnzip_engine" \
+  "$APP_PATH/Contents/Frameworks/newnzip_engine/backends" \
   "$APP_PATH/Contents/Resources/locales"
 
 cp "$TMP_DIR/NewnZipMac" "$APP_PATH/Contents/MacOS/NewnZipMac"

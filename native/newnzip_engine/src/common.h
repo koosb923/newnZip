@@ -10,16 +10,22 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <sys/stat.h>
 #include <sys/time.h>
 #include <unistd.h>
 #include <time.h>
 #include <zlib.h>
 
+#define ZIP_GENERAL_PURPOSE_UTF8 0x0800u
 #define ZIP_LOCAL_FILE_HEADER 0x04034b50u
 #define ZIP_CENTRAL_DIRECTORY_HEADER 0x02014b50u
 #define ZIP_END_OF_CENTRAL_DIRECTORY 0x06054b50u
+#define ZIP64_END_OF_CENTRAL_DIRECTORY 0x06064b50u
+#define ZIP64_END_OF_CENTRAL_DIRECTORY_LOCATOR 0x07064b50u
+#define ZIP64_EXTRA_FIELD_ID 0x0001u
 #define ZIP_VERSION 20u
+#define ZIP64_VERSION 45u
 #define ZIP_METHOD_STORE 0u
 #define ZIP_METHOD_DEFLATE 8u
 #define CHUNK_SIZE 65536u
@@ -36,9 +42,9 @@ typedef struct {
 typedef struct {
     char *name;
     uint32_t crc32;
-    uint32_t compressed_size;
-    uint32_t uncompressed_size;
-    uint32_t local_header_offset;
+    uint64_t compressed_size;
+    uint64_t uncompressed_size;
+    uint64_t local_header_offset;
     uint32_t external_attributes;
     uint16_t method;
     uint16_t mod_time;
@@ -57,6 +63,9 @@ typedef struct {
     int compression_level;
     size_t chunk_size;
     size_t small_file_threshold;
+    uint64_t split_size;
+    const char *archive_format;
+    const char *zip_method;
     const char *performance_mode;
 } RuntimeOptions;
 
@@ -72,11 +81,14 @@ uint16_t dos_time_value(time_t raw_time);
 uint16_t dos_date_value(time_t raw_time);
 void write_u16(FILE *file, uint16_t value);
 void write_u32(FILE *file, uint32_t value);
+void write_u64(FILE *file, uint64_t value);
 uint16_t read_u16(const unsigned char *bytes);
 uint32_t read_u32(const unsigned char *bytes);
+uint64_t read_u64(const unsigned char *bytes);
 char *duplicate_string(const char *value);
 char *join_path(const char *left, const char *right);
 char *normalize_archive_name(const char *name);
+bool should_exclude_archive_path(const char *path, const char *archive_name);
 void ensure_parent_directories(const char *path);
 void central_list_push(CentralList *list, CentralEntry entry);
 void free_central_list(CentralList *list);
@@ -86,6 +98,7 @@ double monotonic_seconds(void);
 int detect_cpu_count(void);
 RuntimeOptions default_runtime_options(void);
 int parse_thread_argument(const char *value, const RuntimeOptions *defaults);
+uint64_t parse_size_argument(const char *value);
 void apply_performance_mode(RuntimeOptions *options, const char *mode_name);
 void tune_runtime_for_source_count(RuntimeOptions *options, size_t source_count, uint64_t total_size);
 char *create_temp_path(const char *prefix);

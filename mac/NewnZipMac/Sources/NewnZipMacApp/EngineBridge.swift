@@ -14,13 +14,17 @@ struct EngineBridge {
         return FileManager.default.fileExists(atPath: local.path) ? local : nil
     }
 
-    private static var sevenZipURL: URL? {
-        for path in ["/opt/homebrew/bin/7zz", "/usr/local/bin/7zz", "/opt/homebrew/bin/7z", "/usr/local/bin/7z", "/usr/bin/7zz", "/usr/bin/7z"] {
-            if FileManager.default.isExecutableFile(atPath: path) {
-                return URL(fileURLWithPath: path)
-            }
+    private static var backendDirectoryURL: URL? {
+        let bundled = Bundle.main.bundleURL.appendingPathComponent("Contents/Frameworks/newnzip_engine/backends")
+        if FileManager.default.fileExists(atPath: bundled.path) {
+            return bundled
         }
-        return nil
+
+        let current = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        let local = current
+            .appendingPathComponent("../../native/newnzip_engine/backends")
+            .standardizedFileURL
+        return FileManager.default.fileExists(atPath: local.path) ? local : nil
     }
 
     static func outputCollisionExists(urls: [URL], format: ArchiveFormat, splitSizeMB: Int) -> Bool {
@@ -38,6 +42,7 @@ struct EngineBridge {
     static func compress(
         urls: [URL],
         format: ArchiveFormat,
+        zipMethod: ZipMethod = .auto,
         splitSizeMB: Int = 0,
         conflictPolicy: OutputConflictPolicy = .append,
         onLine: @escaping @Sendable (String) -> Void
@@ -49,32 +54,28 @@ struct EngineBridge {
         let requestedOutput = first.deletingLastPathComponent().appendingPathComponent("\(archiveName).\(format.rawValue)")
         let output = resolvedOutputURL(for: requestedOutput, splitSizeMB: splitSizeMB, conflictPolicy: conflictPolicy)
 
-        if splitSizeMB > 0 {
-            guard format == .zip, let engineURL else {
-                let summary = "분할 압축은 현재 zip 형식만 지원합니다."
-                onLine(summary)
-                return EngineResult(summary: summary, logLines: [summary])
-            }
-
-            let temporaryZip = FileManager.default.temporaryDirectory
-                .appendingPathComponent("newnzip-\(UUID().uuidString).zip")
-            defer { try? FileManager.default.removeItem(at: temporaryZip) }
-            let createArgs = ["create", temporaryZip.path] + urls.map(\.path)
-            _ = try await run(executable: engineURL, arguments: createArgs, onLine: onLine)
-            try splitFile(source: temporaryZip, destinationBase: output, splitSizeMB: splitSizeMB)
-            let summary = "분할 압축 완료: \(output.lastPathComponent).001"
+        guard let engineURL else {
+            let summary = "newnzip-engine을 찾지 못했습니다."
             onLine(summary)
             return EngineResult(summary: summary, logLines: [summary])
         }
 
-        if format == .zip, let engineURL {
-            let args = ["create", output.path] + urls.map(\.path)
-            return try await run(executable: engineURL, arguments: args, onLine: onLine)
+        if splitSizeMB > 0 && format != .zip {
+            let summary = "분할 압축은 현재 zip 형식만 지원합니다."
+            onLine(summary)
+            return EngineResult(summary: summary, logLines: [summary])
         }
 
-        let summary = "\(format.rawValue) 형식 압축은 아직 구현 중입니다: \(output.lastPathComponent)"
-        onLine(summary)
-        return EngineResult(summary: summary, logLines: [summary])
+        var args = ["create", "--format=\(format.rawValue)"]
+        if format == .zip {
+            args.append("--method=\(zipMethod.rawValue)")
+        }
+        if splitSizeMB > 0 {
+            args.append("--split=\(splitSizeMB)m")
+        }
+        args.append(output.path)
+        args.append(contentsOf: urls.map(\.path))
+        return try await run(executable: engineURL, arguments: args, onLine: onLine)
     }
 
     static func extract(urls: [URL], onLine: @escaping @Sendable (String) -> Void) async throws -> EngineResult {
@@ -83,27 +84,14 @@ struct EngineBridge {
         }
         let output = first.deletingLastPathComponent().appendingPathComponent(extractionDirectoryName(for: first))
 
-        if isSplitArchiveStart(first), let engineURL {
-            let temporaryZip = FileManager.default.temporaryDirectory
-                .appendingPathComponent("newnzip-joined-\(UUID().uuidString).zip")
-            defer { try? FileManager.default.removeItem(at: temporaryZip) }
-            try joinSplitFiles(start: first, destination: temporaryZip)
-            let args = ["extract", temporaryZip.path, output.path]
-            return try await run(executable: engineURL, arguments: args, onLine: onLine)
-        }
-
-        if first.pathExtension.lowercased() == "zip", let engineURL {
+        if let engineURL {
             let args = ["extract", first.path, output.path]
             return try await run(executable: engineURL, arguments: args, onLine: onLine)
         }
 
-        guard let sevenZipURL else {
-            let summary = "이 압축 파일을 풀려면 7zz 또는 7z가 필요합니다."
-            onLine(summary)
-            return EngineResult(summary: summary, logLines: [summary])
-        }
-        let args = ["x", first.path, "-o\(output.path)", "-y"]
-        return try await run(executable: sevenZipURL, arguments: args, onLine: onLine)
+        let summary = "newnzip-engine을 찾지 못했습니다."
+        onLine(summary)
+        return EngineResult(summary: summary, logLines: [summary])
     }
 
     private static func extractionDirectoryName(for url: URL) -> String {
@@ -111,7 +99,9 @@ struct EngineBridge {
         if name.hasSuffix(".zip.001") || name.hasSuffix(".7z.001") {
             return url.deletingPathExtension().deletingPathExtension().lastPathComponent
         }
-        if name.hasSuffix(".tar.gz") || name.hasSuffix(".tar.bz2") || name.hasSuffix(".tar.xz") {
+        if name.hasSuffix(".tar.gz") || name.hasSuffix(".tar.bz2") ||
+            name.hasSuffix(".tar.xz") || name.hasSuffix(".tar.zstd") ||
+            name.hasSuffix(".tar.zst") {
             return url.deletingPathExtension().deletingPathExtension().lastPathComponent
         }
         if url.pathExtension.lowercased() == "001" {
@@ -232,6 +222,11 @@ struct EngineBridge {
                 let process = Process()
                 process.executableURL = executable
                 process.arguments = arguments
+                if let backendDirectoryURL {
+                    var environment = ProcessInfo.processInfo.environment
+                    environment["NEWNZIP_BACKEND_DIR"] = backendDirectoryURL.path
+                    process.environment = environment
+                }
                 processBox.process = process
 
                 let output = Pipe()

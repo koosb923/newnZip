@@ -3,7 +3,15 @@ import Foundation
 enum ArchiveFormat: String, CaseIterable, Identifiable {
     case zip = "zip"
     case sevenZip = "7z"
+    case tar = "tar"
     case tarGz = "tar.gz"
+    case tarBz2 = "tar.bz2"
+    case tarXz = "tar.xz"
+    case tarZstd = "tar.zstd"
+    case zstd = "zstd"
+    case lz4 = "lz4"
+    case brotli = "brotli"
+    case wim = "wim"
 
     var id: String { rawValue }
 }
@@ -34,6 +42,14 @@ enum OutputConflictPolicy: String, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 
+enum ZipMethod: String, CaseIterable, Identifiable {
+    case auto = "auto"
+    case deflate = "deflate"
+    case store = "store"
+
+    var id: String { rawValue }
+}
+
 @MainActor
 final class AppSettings: ObservableObject {
     static let shared = AppSettings()
@@ -50,6 +66,10 @@ final class AppSettings: ObservableObject {
         didSet { UserDefaults.standard.set(outputConflictPolicy.rawValue, forKey: "output_conflict_policy") }
     }
 
+    @Published var zipMethod: ZipMethod {
+        didSet { UserDefaults.standard.set(zipMethod.rawValue, forKey: "zip_method") }
+    }
+
     @Published var language: AppLanguage {
         didSet {
             UserDefaults.standard.set(language.rawValue, forKey: "language")
@@ -63,6 +83,8 @@ final class AppSettings: ObservableObject {
         self.splitSizeMB = UserDefaults.standard.integer(forKey: "split_size_mb")
         let savedConflictPolicy = UserDefaults.standard.string(forKey: "output_conflict_policy")
         self.outputConflictPolicy = OutputConflictPolicy(rawValue: savedConflictPolicy ?? "append") ?? .append
+        let savedZipMethod = UserDefaults.standard.string(forKey: "zip_method")
+        self.zipMethod = ZipMethod(rawValue: savedZipMethod ?? "auto") ?? .auto
 
         let savedLanguage = UserDefaults.standard.string(forKey: "language")
         let resolvedLanguage = AppLanguage(rawValue: savedLanguage ?? "system") ?? .system

@@ -1,5 +1,9 @@
 #include "common.h"
 
+#if defined(__APPLE__)
+#include <CoreFoundation/CoreFoundation.h>
+#endif
+
 void fail(const char *message) {
     fprintf(stderr, "%s\n", message);
     exit(1);
@@ -54,6 +58,21 @@ void write_u32(FILE *file, uint32_t value) {
     }
 }
 
+void write_u64(FILE *file, uint64_t value) {
+    unsigned char bytes[8];
+    bytes[0] = (unsigned char) (value & 0xffu);
+    bytes[1] = (unsigned char) ((value >> 8) & 0xffu);
+    bytes[2] = (unsigned char) ((value >> 16) & 0xffu);
+    bytes[3] = (unsigned char) ((value >> 24) & 0xffu);
+    bytes[4] = (unsigned char) ((value >> 32) & 0xffu);
+    bytes[5] = (unsigned char) ((value >> 40) & 0xffu);
+    bytes[6] = (unsigned char) ((value >> 48) & 0xffu);
+    bytes[7] = (unsigned char) ((value >> 56) & 0xffu);
+    if (fwrite(bytes, 1, 8, file) != 8) {
+        fail_errno("failed to write u64");
+    }
+}
+
 uint16_t read_u16(const unsigned char *bytes) {
     return (uint16_t) bytes[0] | ((uint16_t) bytes[1] << 8);
 }
@@ -63,6 +82,17 @@ uint32_t read_u32(const unsigned char *bytes) {
            ((uint32_t) bytes[1] << 8) |
            ((uint32_t) bytes[2] << 16) |
            ((uint32_t) bytes[3] << 24);
+}
+
+uint64_t read_u64(const unsigned char *bytes) {
+    return (uint64_t) bytes[0] |
+           ((uint64_t) bytes[1] << 8) |
+           ((uint64_t) bytes[2] << 16) |
+           ((uint64_t) bytes[3] << 24) |
+           ((uint64_t) bytes[4] << 32) |
+           ((uint64_t) bytes[5] << 40) |
+           ((uint64_t) bytes[6] << 48) |
+           ((uint64_t) bytes[7] << 56);
 }
 
 char *duplicate_string(const char *value) {
@@ -94,13 +124,75 @@ char *join_path(const char *left, const char *right) {
 }
 
 char *normalize_archive_name(const char *name) {
-    char *copy = duplicate_string(name);
+    char *copy = NULL;
+#if defined(__APPLE__)
+    CFStringRef source = CFStringCreateWithCString(kCFAllocatorDefault, name, kCFStringEncodingUTF8);
+    if (source) {
+        CFMutableStringRef normalized = CFStringCreateMutableCopy(kCFAllocatorDefault, 0, source);
+        CFRelease(source);
+        if (normalized) {
+            CFStringNormalize(normalized, kCFStringNormalizationFormC);
+            CFIndex length = CFStringGetLength(normalized);
+            CFIndex max_size = CFStringGetMaximumSizeForEncoding(length, kCFStringEncodingUTF8) + 1;
+            copy = malloc((size_t) max_size);
+            if (!copy) {
+                CFRelease(normalized);
+                fail("out of memory");
+            }
+            if (!CFStringGetCString(normalized, copy, max_size, kCFStringEncodingUTF8)) {
+                free(copy);
+                copy = NULL;
+            }
+            CFRelease(normalized);
+        }
+    }
+#endif
+    if (!copy) {
+        copy = duplicate_string(name);
+    }
     for (size_t i = 0; copy[i] != '\0'; i++) {
         if (copy[i] == '\\') {
             copy[i] = '/';
         }
     }
     return copy;
+}
+
+static const char *last_path_component(const char *path) {
+    const char *slash = strrchr(path, '/');
+    return slash ? slash + 1 : path;
+}
+
+static bool is_excluded_archive_component(const char *name) {
+    return strcmp(name, ".DS_Store") == 0 ||
+           strcmp(name, "__MACOSX") == 0 ||
+           strcmp(name, ".Spotlight-V100") == 0 ||
+           strcmp(name, ".Trashes") == 0 ||
+           strcmp(name, ".fseventsd") == 0 ||
+           strcmp(name, ".TemporaryItems") == 0 ||
+           strcmp(name, ".DocumentRevisions-V100") == 0 ||
+           strcmp(name, ".VolumeIcon.icns") == 0 ||
+           strcmp(name, "Icon\r") == 0 ||
+           strncmp(name, "._", 2) == 0;
+}
+
+bool should_exclude_archive_path(const char *path, const char *archive_name) {
+    const char *leaf = last_path_component(path);
+    if (is_excluded_archive_component(leaf)) {
+        return true;
+    }
+
+    char *name_copy = duplicate_string(archive_name);
+    char *component = strtok(name_copy, "/");
+    while (component) {
+        if (is_excluded_archive_component(component)) {
+            free(name_copy);
+            return true;
+        }
+        component = strtok(NULL, "/");
+    }
+    free(name_copy);
+    return false;
 }
 
 void ensure_parent_directories(const char *path) {
@@ -172,6 +264,10 @@ static void source_list_push(
 }
 
 void collect_sources(const char *path, const char *archive_root, SourceEntry **items, size_t *count, size_t *capacity) {
+    if (should_exclude_archive_path(path, archive_root)) {
+        return;
+    }
+
     struct stat item_stat;
     if (lstat(path, &item_stat) != 0) {
         fail_errno(path);

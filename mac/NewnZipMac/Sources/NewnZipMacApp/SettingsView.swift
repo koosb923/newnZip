@@ -19,6 +19,12 @@ struct SettingsView: View {
                 }
             }
 
+            Picker(Localizer.shared.text("settings.zip_method"), selection: $settings.zipMethod) {
+                ForEach(ZipMethod.allCases) { method in
+                    Text(Localizer.shared.text("settings.zip_method_\(method.rawValue)")).tag(method)
+                }
+            }
+
             TextField(Localizer.shared.text("settings.split_size_mb"), text: $splitSizeText)
                 .textFieldStyle(.roundedBorder)
 

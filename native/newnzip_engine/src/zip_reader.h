@@ -3,5 +3,6 @@
 
 void command_list(const char *archive_path);
 void command_extract(const char *archive_path, const char *destination, const RuntimeOptions *options);
+void command_extract_split(const char *archive_path, const char *destination, const RuntimeOptions *options);
 
 #endif
