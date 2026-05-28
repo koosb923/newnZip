@@ -12,6 +12,7 @@
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
 
         <StackPanel Spacing="6">
@@ -36,7 +37,27 @@
             </StackPanel>
         </Border>
 
-        <Grid Grid.Row="2" ColumnSpacing="10">
+        <Border x:Name="SettingsPanel"
+                Grid.Row="2"
+                Visibility="Collapsed"
+                Padding="14"
+                Margin="0,0,0,12"
+                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                BorderThickness="1"
+                CornerRadius="8"
+                Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
+            <StackPanel Spacing="8">
+                <ToggleSwitch x:Name="DefaultArchiveToggle"
+                              Header="기본 압축 앱으로 사용"
+                              Toggled="DefaultArchiveToggleToggled" />
+                <TextBlock x:Name="DefaultArchiveStatusText"
+                           Text="현재 기본 앱 상태를 확인 중입니다."
+                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                           TextWrapping="Wrap" />
+            </StackPanel>
+        </Border>
+
+        <Grid Grid.Row="3" ColumnSpacing="10">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*" />
                 <ColumnDefinition Width="Auto" />

@@ -2,6 +2,8 @@ import SwiftUI
 
 struct SettingsView: View {
     @StateObject private var settings = AppSettings.shared
+    @StateObject private var defaultAppService = DefaultArchiveAppService.shared
+    @StateObject private var finderIntegration = FinderIntegrationService.shared
     @Environment(\.dismiss) private var dismiss
     @State private var splitSizeText = "\(AppSettings.shared.splitSizeMB)"
 
@@ -34,6 +36,46 @@ struct SettingsView: View {
                 }
             }
 
+            Divider()
+
+            Toggle(isOn: Binding(
+                get: { defaultAppService.isDefaultArchiveApp },
+                set: { enabled in
+                    if enabled {
+                        defaultAppService.setAsDefaultArchiveApp()
+                    } else {
+                        defaultAppService.openSystemDefaultAppSettings()
+                        defaultAppService.refresh()
+                    }
+                }
+            )) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(Localizer.shared.text("settings.default_app"))
+                    Text(defaultAppService.statusText)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text(Localizer.shared.text("settings.finder_service"))
+
+                HStack {
+                    Button(Localizer.shared.text("settings.finder_service_refresh")) {
+                        finderIntegration.refreshServices()
+                    }
+                    Button(Localizer.shared.text("settings.finder_service_open")) {
+                        finderIntegration.openServicesSettings()
+                    }
+                }
+
+                Text(finderIntegration.statusText.isEmpty
+                     ? Localizer.shared.text("settings.finder_service_hint")
+                     : finderIntegration.statusText)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             HStack {
                 Spacer()
                 Button(Localizer.shared.text("settings.cancel")) {
@@ -47,6 +89,9 @@ struct SettingsView: View {
             }
         }
         .padding(20)
-        .frame(width: 360)
+        .frame(width: 420)
+        .onAppear {
+            defaultAppService.refresh()
+        }
     }
 }

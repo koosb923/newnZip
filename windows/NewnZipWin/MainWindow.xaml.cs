@@ -1,10 +1,12 @@
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Controls;
 
 namespace NewnZipWin;
 
 public sealed partial class MainWindow : Window
 {
     private readonly ArchiveCommand initialCommand;
+    private bool updatingDefaultArchiveToggle;
 
     public MainWindow(ArchiveCommand initialCommand)
     {
@@ -21,6 +23,8 @@ public sealed partial class MainWindow : Window
                 _ => StatusText.Text
             };
         }
+
+        RefreshDefaultArchiveStatus();
     }
 
     public async Task RunCommandAsync(ArchiveCommand command)
@@ -36,11 +40,49 @@ public sealed partial class MainWindow : Window
 
     private void OpenSettingsClick(object sender, RoutedEventArgs e)
     {
-        StatusText.Text = "설정 화면은 다음 단계에서 Windows UI로 확장합니다.";
+        SettingsPanel.Visibility = SettingsPanel.Visibility == Visibility.Visible
+            ? Visibility.Collapsed
+            : Visibility.Visible;
+        RefreshDefaultArchiveStatus();
+    }
+
+    private void DefaultArchiveToggleToggled(object sender, RoutedEventArgs e)
+    {
+        if (updatingDefaultArchiveToggle)
+        {
+            return;
+        }
+
+        if (DefaultArchiveToggle.IsOn)
+        {
+            var status = WindowsDefaultAppService.RegisterAsDefaultCandidate();
+            ApplyDefaultArchiveStatus(status);
+            StatusText.Text = "newnZip을 기본 앱 후보로 등록했습니다.";
+            DetailText.Text = "Windows 기본 앱 설정에서 newnZip을 선택하면 토글이 켜진 상태로 유지됩니다.";
+        }
+        else
+        {
+            WindowsDefaultAppService.OpenDefaultAppsSettings();
+            RefreshDefaultArchiveStatus();
+            StatusText.Text = "기본 앱 변경은 Windows 설정에서 선택해 주세요.";
+        }
     }
 
     private void CloseClick(object sender, RoutedEventArgs e)
     {
         Close();
+    }
+
+    private void RefreshDefaultArchiveStatus()
+    {
+        ApplyDefaultArchiveStatus(WindowsDefaultAppService.GetStatus());
+    }
+
+    private void ApplyDefaultArchiveStatus(WindowsDefaultAppStatus status)
+    {
+        updatingDefaultArchiveToggle = true;
+        DefaultArchiveToggle.IsOn = status.IsDefault;
+        DefaultArchiveStatusText.Text = status.Message;
+        updatingDefaultArchiveToggle = false;
     }
 }
