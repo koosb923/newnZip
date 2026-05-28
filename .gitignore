@@ -1,0 +1,21 @@
+.DS_Store
+
+# macOS 앱 번들 및 배포 산출물
+dist/
+build/
+*.app
+*.dSYM
+
+# SwiftPM 빌드 산출물
+.build/
+Packages/
+Package.resolved
+
+# 네이티브 엔진 빌드 산출물
+native/newnzip_engine/bin/
+
+# 임시 파일
+*.tmp
+*.temp
+*.swp
+*.swo

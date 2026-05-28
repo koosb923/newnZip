@@ -1,0 +1,12 @@
+{
+  "default_format": {
+    "type": "string",
+    "allowed": ["zip", "7z", "tar.gz"],
+    "default": "zip"
+  },
+  "language": {
+    "type": "string",
+    "allowed": ["ko", "en", "ja"],
+    "default": "system"
+  }
+}
