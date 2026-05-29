@@ -122,6 +122,7 @@
   "settings.output_conflict_append": "Add as copy",
   "settings.output_conflict_overwrite": "Overwrite",
   "settings.output_conflict_ask": "Always ask",
+  "settings.archive_password": "Archive password (for create/extract)",
   "settings.drag_overlay": "Show file drag overlay",
   "settings.drag_overlay_dock_side": "Drag overlay dock side",
   "settings.drag_overlay_dock_side_left": "Left",

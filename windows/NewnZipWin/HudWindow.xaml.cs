@@ -6,10 +6,12 @@ public sealed partial class HudWindow : Window
 {
     private readonly ArchiveCommand command;
     private readonly CancellationTokenSource cancellation = new();
+    private readonly bool exitApplicationWhenDone;
 
-    public HudWindow(ArchiveCommand command)
+    public HudWindow(ArchiveCommand command, bool exitApplicationWhenDone = true)
     {
         this.command = command;
+        this.exitApplicationWhenDone = exitApplicationWhenDone;
         InitializeComponent();
 
         TitleText.Text = command.Kind switch
@@ -56,7 +58,10 @@ public sealed partial class HudWindow : Window
             CancelButton.IsEnabled = false;
             await Task.Delay(900);
             Close();
-            Application.Current.Exit();
+            if (exitApplicationWhenDone)
+            {
+                Application.Current.Exit();
+            }
         });
     }
 

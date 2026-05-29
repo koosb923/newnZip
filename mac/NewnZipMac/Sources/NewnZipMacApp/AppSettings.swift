@@ -91,6 +91,10 @@ final class AppSettings: ObservableObject {
         }
     }
 
+    @Published var archivePassword: String {
+        didSet { UserDefaults.standard.set(archivePassword, forKey: "archive_password") }
+    }
+
     @Published var language: AppLanguage {
         didSet {
             UserDefaults.standard.set(language.rawValue, forKey: "language")
@@ -109,6 +113,7 @@ final class AppSettings: ObservableObject {
         self.dragOverlayEnabled = UserDefaults.standard.object(forKey: "drag_overlay_enabled") as? Bool ?? true
         let savedDragOverlayDockSide = UserDefaults.standard.string(forKey: "drag_overlay_dock_side")
         self.dragOverlayDockSide = DragOverlayDockSide(rawValue: savedDragOverlayDockSide ?? "left") ?? .left
+        self.archivePassword = UserDefaults.standard.string(forKey: "archive_password") ?? ""
 
         let savedLanguage = UserDefaults.standard.string(forKey: "language")
         let resolvedLanguage = AppLanguage(rawValue: savedLanguage ?? "system") ?? .system

@@ -19,6 +19,10 @@
     "allowed": ["append", "overwrite", "ask"],
     "default": "append"
   },
+  "archive_password": {
+    "type": "string",
+    "default": ""
+  },
   "drag_overlay_dock_side": {
     "type": "string",
     "allowed": ["left", "right"],

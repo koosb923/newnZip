@@ -122,6 +122,7 @@
   "settings.output_conflict_append": "사본으로 추가",
   "settings.output_conflict_overwrite": "덮어쓰기",
   "settings.output_conflict_ask": "항상 물어보기",
+  "settings.archive_password": "압축 암호 (생성/해제 공용)",
   "settings.drag_overlay": "파일 드래그 오버레이 표시",
   "settings.drag_overlay_dock_side": "드래그 오버레이 붙는 위치",
   "settings.drag_overlay_dock_side_left": "왼쪽",

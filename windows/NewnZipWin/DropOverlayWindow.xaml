@@ -1,0 +1,26 @@
+<Window
+    x:Class="NewnZipWin.DropOverlayWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="newnZip Overlay">
+
+    <Border x:Name="OverlayRoot"
+            AllowDrop="True"
+            Padding="8"
+            Background="#D9F4F4F4"
+            BorderBrush="#59FFFFFF"
+            BorderThickness="1"
+            CornerRadius="16"
+            DragOver="OverlayRootDragOver"
+            Drop="OverlayRootDrop">
+        <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center" Spacing="8">
+            <TextBlock Text="newnZip"
+                       FontSize="13"
+                       FontWeight="SemiBold"
+                       TextAlignment="Center" />
+            <TextBlock Text="놓아서&#10;압축/해제"
+                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                       TextAlignment="Center" />
+        </StackPanel>
+    </Border>
+</Window>

@@ -18,6 +18,7 @@ static void print_usage(void) {
     fprintf(stderr, "  --split=100m  ZIP 분할 크기 지정\n");
     fprintf(stderr, "  --threads=N  병렬 처리 스레드 수 지정\n");
     fprintf(stderr, "  --mode=auto|balanced|max|low-memory  성능 모드 지정\n");
+    fprintf(stderr, "  --password=암호  ZIP/7Z 암호 지정 (7z backend 필요)\n");
 }
 
 static bool parse_option(const char *argument, RuntimeOptions *options) {
@@ -39,6 +40,10 @@ static bool parse_option(const char *argument, RuntimeOptions *options) {
     }
     if (strncmp(argument, "--split=", 8) == 0) {
         options->split_size = parse_size_argument(argument + 8);
+        return true;
+    }
+    if (strncmp(argument, "--password=", 11) == 0) {
+        options->password = argument + 11;
         return true;
     }
     return false;
@@ -104,6 +109,16 @@ int main(int argc, char **argv) {
         return 0;
     }
     if (strcmp(command, "create") == 0) {
+        if (options.password && *options.password &&
+            strcmp(options.archive_format, "zip") != 0 &&
+            strcmp(options.archive_format, "7z") != 0) {
+            fail("암호 압축은 현재 zip 또는 7z 형식만 지원합니다");
+        }
+        if (options.password && *options.password && strcmp(options.archive_format, "zip") == 0) {
+            adapter_create(command_argc, command_argv, &options);
+            free(command_argv);
+            return 0;
+        }
         if (strcmp(options.archive_format, "zip") != 0) {
             adapter_create(command_argc, command_argv, &options);
             free(command_argv);
@@ -121,8 +136,10 @@ int main(int argc, char **argv) {
         size_t archive_length = strlen(archive_path);
         if (archive_length > 4 && strcmp(archive_path + archive_length - 4, ".001") == 0) {
             command_extract_split(archive_path, command_argv[3], &options);
+        } else if (options.password && *options.password) {
+            adapter_extract(command_argv[2], command_argv[3], &options);
         } else if (adapter_can_extract(archive_path)) {
-            adapter_extract(command_argv[2], command_argv[3]);
+            adapter_extract(command_argv[2], command_argv[3], &options);
         } else {
             command_extract(command_argv[2], command_argv[3], &options);
         }

@@ -11,8 +11,8 @@ typedef struct {
 } FormatCapability;
 
 static const FormatCapability FORMAT_CAPABILITIES[] = {
-    {"zip", true, true, true, true, "native deflate/store, symlink metadata, app-layer split volumes"},
-    {"7z", true, true, false, false, "7zz/7z adapter when backend is available"},
+    {"zip", true, true, true, true, "native deflate/store, split volumes; password create/extract via 7zz/7z backend"},
+    {"7z", true, true, false, false, "7zz/7z adapter when backend is available, including password support"},
     {"rar", false, true, false, false, "7zz/7z extract adapter when backend is available"},
     {"tar", true, true, false, false, "bsdtar/libarchive adapter"},
     {"tar.gz", true, true, false, false, "bsdtar/libarchive adapter"},
@@ -69,7 +69,7 @@ void command_capabilities(void) {
     printf("    \"split_zip_create\": true,\n");
     printf("    \"split_zip_extract\": true,\n");
     printf("    \"solid_compression\": false,\n");
-    printf("    \"passwords\": false,\n");
+    printf("    \"passwords\": true,\n");
     printf("    \"egg_encryption\": false\n");
     printf("  },\n");
     printf("  \"formats\": [\n");

@@ -1,5 +1,6 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Windows.ApplicationModel.DataTransfer;
 
 namespace NewnZipWin;
 
@@ -8,6 +9,9 @@ public sealed partial class MainWindow : Window
     private readonly ArchiveCommand initialCommand;
     private bool updatingDefaultArchiveToggle;
     private bool updatingConflictPolicyBox;
+    private bool updatingArchivePassword;
+    private bool updatingDragOverlayToggle;
+    private bool updatingDragOverlayDockSideBox;
 
     public MainWindow(ArchiveCommand initialCommand)
     {
@@ -27,6 +31,8 @@ public sealed partial class MainWindow : Window
 
         RefreshDefaultArchiveStatus();
         RefreshConflictPolicy();
+        RefreshArchivePassword();
+        RefreshDragOverlaySettings();
     }
 
     public async Task RunCommandAsync(ArchiveCommand command)
@@ -36,6 +42,7 @@ public sealed partial class MainWindow : Window
 
         var result = await ArchiveCommandService.ExecuteAsync(command);
         ProgressRing.IsActive = false;
+        ArchiveCommandService.RevealResult(result);
         StatusText.Text = result.Success ? "작업이 완료되었습니다." : "작업에 실패했습니다.";
         DetailText.Text = result.Message;
     }
@@ -84,6 +91,42 @@ public sealed partial class MainWindow : Window
         }
     }
 
+    private void ArchivePasswordBoxPasswordChanged(object sender, RoutedEventArgs e)
+    {
+        if (updatingArchivePassword)
+        {
+            return;
+        }
+
+        AppPreferences.ArchivePassword = ArchivePasswordBox.Password;
+        StatusText.Text = "압축 암호 설정을 저장했습니다.";
+    }
+
+    private void DragOverlayToggleToggled(object sender, RoutedEventArgs e)
+    {
+        if (updatingDragOverlayToggle)
+        {
+            return;
+        }
+
+        AppPreferences.DragOverlayEnabled = DragOverlayToggle.IsOn;
+        StatusText.Text = "드래그 오버레이 설정을 저장했습니다.";
+    }
+
+    private void DragOverlayDockSideSelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (updatingDragOverlayDockSideBox || DragOverlayDockSideBox.SelectedItem is not ComboBoxItem item)
+        {
+            return;
+        }
+
+        if (Enum.TryParse<DragOverlayDockSide>(item.Tag?.ToString(), out var dockSide))
+        {
+            AppPreferences.DragOverlayDockSide = dockSide;
+            StatusText.Text = "드래그 오버레이 위치를 저장했습니다.";
+        }
+    }
+
     private void CloseClick(object sender, RoutedEventArgs e)
     {
         Close();
@@ -109,11 +152,62 @@ public sealed partial class MainWindow : Window
         updatingConflictPolicyBox = false;
     }
 
+    private void RefreshArchivePassword()
+    {
+        updatingArchivePassword = true;
+        ArchivePasswordBox.Password = AppPreferences.ArchivePassword;
+        updatingArchivePassword = false;
+    }
+
+    private void RefreshDragOverlaySettings()
+    {
+        updatingDragOverlayToggle = true;
+        DragOverlayToggle.IsOn = AppPreferences.DragOverlayEnabled;
+        updatingDragOverlayToggle = false;
+
+        updatingDragOverlayDockSideBox = true;
+        var current = AppPreferences.DragOverlayDockSide.ToString();
+        foreach (var item in DragOverlayDockSideBox.Items.OfType<ComboBoxItem>())
+        {
+            if (item.Tag?.ToString() == current)
+            {
+                DragOverlayDockSideBox.SelectedItem = item;
+                break;
+            }
+        }
+        updatingDragOverlayDockSideBox = false;
+    }
+
     private void ApplyDefaultArchiveStatus(WindowsDefaultAppStatus status)
     {
         updatingDefaultArchiveToggle = true;
         DefaultArchiveToggle.IsOn = status.IsDefault;
         DefaultArchiveStatusText.Text = status.Message;
         updatingDefaultArchiveToggle = false;
+    }
+
+    private void DropSurfaceDragOver(object sender, DragEventArgs e)
+    {
+        e.AcceptedOperation = e.DataView.Contains(StandardDataFormats.StorageItems)
+            ? DataPackageOperation.Copy
+            : DataPackageOperation.None;
+    }
+
+    private async void DropSurfaceDrop(object sender, DragEventArgs e)
+    {
+        if (!e.DataView.Contains(StandardDataFormats.StorageItems))
+        {
+            return;
+        }
+
+        var items = await e.DataView.GetStorageItemsAsync();
+        var command = ArchiveCommandService.FromDroppedPaths(items.Select(item => item.Path));
+        if (command.Kind == ArchiveCommandKind.None)
+        {
+            StatusText.Text = "드롭한 항목을 처리할 수 없습니다.";
+            return;
+        }
+
+        await RunCommandAsync(command);
     }
 }

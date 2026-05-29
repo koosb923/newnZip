@@ -122,6 +122,7 @@
   "settings.output_conflict_append": "コピーとして追加",
   "settings.output_conflict_overwrite": "上書き",
   "settings.output_conflict_ask": "常に確認",
+  "settings.archive_password": "アーカイブパスワード (作成/展開共通)",
   "settings.drag_overlay": "ファイルドラッグオーバーレイを表示",
   "settings.drag_overlay_dock_side": "ドラッグオーバーレイの配置",
   "settings.drag_overlay_dock_side_left": "左",

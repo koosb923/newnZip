@@ -74,6 +74,7 @@ struct ContentView: View {
         let currentFormat = settings.defaultFormat
         let currentZipMethod = settings.zipMethod
         let currentSplitSizeMB = settings.splitSizeMB
+        let currentArchivePassword = settings.archivePassword.trimmingCharacters(in: .whitespacesAndNewlines)
         let currentConflictPolicy = resolvedConflictPolicy(for: intent, format: currentFormat, splitSizeMB: currentSplitSizeMB)
         switch intent {
         case .compress(let items):
@@ -91,6 +92,7 @@ struct ContentView: View {
                         format: currentFormat,
                         zipMethod: currentZipMethod,
                         splitSizeMB: currentSplitSizeMB,
+                        password: currentArchivePassword.isEmpty ? nil : currentArchivePassword,
                         conflictPolicy: currentConflictPolicy
                     ) { line in
                         Task { @MainActor in
@@ -98,7 +100,11 @@ struct ContentView: View {
                         }
                     }
                 case .extract(let items):
-                    _ = try await EngineBridge.extract(urls: items, conflictPolicy: currentConflictPolicy) { line in
+                    _ = try await EngineBridge.extract(
+                        urls: items,
+                        password: currentArchivePassword.isEmpty ? nil : currentArchivePassword,
+                        conflictPolicy: currentConflictPolicy
+                    ) { line in
                         Task { @MainActor in
                             handleEngineLine(line)
                         }

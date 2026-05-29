@@ -67,6 +67,7 @@ typedef struct {
     const char *archive_format;
     const char *zip_method;
     const char *performance_mode;
+    const char *password;
 } RuntimeOptions;
 
 typedef struct {

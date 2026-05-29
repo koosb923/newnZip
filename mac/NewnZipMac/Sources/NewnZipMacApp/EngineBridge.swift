@@ -52,6 +52,7 @@ struct EngineBridge {
         format: ArchiveFormat,
         zipMethod: ZipMethod = .auto,
         splitSizeMB: Int = 0,
+        password: String? = nil,
         conflictPolicy: OutputConflictPolicy = .append,
         onLine: @escaping @Sendable (String) -> Void
     ) async throws -> EngineResult {
@@ -81,6 +82,9 @@ struct EngineBridge {
         if splitSizeMB > 0 {
             args.append("--split=\(splitSizeMB)m")
         }
+        if let password, !password.isEmpty {
+            args.append("--password=\(password)")
+        }
         args.append(output.path)
         args.append(contentsOf: urls.map(\.path))
         return try await run(executable: engineURL, arguments: args, onLine: onLine)
@@ -88,6 +92,7 @@ struct EngineBridge {
 
     static func extract(
         urls: [URL],
+        password: String? = nil,
         conflictPolicy: OutputConflictPolicy = .append,
         onLine: @escaping @Sendable (String) -> Void
     ) async throws -> EngineResult {
@@ -98,7 +103,12 @@ struct EngineBridge {
         let output = resolvedExtractionOutputURL(for: requestedOutput, conflictPolicy: conflictPolicy)
 
         if let engineURL {
-            let args = ["extract", first.path, output.path]
+            var args = ["extract"]
+            if let password, !password.isEmpty {
+                args.append("--password=\(password)")
+            }
+            args.append(first.path)
+            args.append(output.path)
             return try await run(executable: engineURL, arguments: args, onLine: onLine)
         }
 

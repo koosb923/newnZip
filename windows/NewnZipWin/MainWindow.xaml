@@ -21,11 +21,15 @@
         </StackPanel>
 
         <Border Grid.Row="1"
+                x:Name="DropSurface"
+                AllowDrop="True"
                 MinHeight="220"
                 BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                 BorderThickness="1"
                 CornerRadius="8"
-                Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
+                Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                DragOver="DropSurfaceDragOver"
+                Drop="DropSurfaceDrop">
             <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="14">
                 <FontIcon Glyph="&#xE8B7;" FontSize="44" />
                 <TextBlock x:Name="StatusText"
@@ -60,6 +64,18 @@
                     <ComboBoxItem Content="사본으로 추가" Tag="Append" />
                     <ComboBoxItem Content="덮어쓰기" Tag="Overwrite" />
                     <ComboBoxItem Content="항상 물어보기" Tag="Ask" />
+                </ComboBox>
+                <PasswordBox x:Name="ArchivePasswordBox"
+                             Header="압축 암호 (생성/해제 공용)"
+                             PasswordChanged="ArchivePasswordBoxPasswordChanged" />
+                <ToggleSwitch x:Name="DragOverlayToggle"
+                              Header="드래그 오버레이 표시"
+                              Toggled="DragOverlayToggleToggled" />
+                <ComboBox x:Name="DragOverlayDockSideBox"
+                          Header="드래그 오버레이 붙는 위치"
+                          SelectionChanged="DragOverlayDockSideSelectionChanged">
+                    <ComboBoxItem Content="왼쪽" Tag="Left" />
+                    <ComboBoxItem Content="오른쪽" Tag="Right" />
                 </ComboBox>
             </StackPanel>
         </Border>

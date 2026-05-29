@@ -28,6 +28,7 @@ RuntimeOptions default_runtime_options(void) {
     options.split_size = 0;
     options.archive_format = "zip";
     options.zip_method = "deflate";
+    options.password = NULL;
 #if defined(__APPLE__)
     options.small_file_threshold = 512 * 1024u;
 #else

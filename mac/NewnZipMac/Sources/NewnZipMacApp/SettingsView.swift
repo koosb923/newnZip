@@ -36,6 +36,8 @@ struct SettingsView: View {
                 }
             }
 
+            SecureField(Localizer.shared.text("settings.archive_password"), text: $settings.archivePassword)
+
             Toggle(Localizer.shared.text("settings.drag_overlay"), isOn: $settings.dragOverlayEnabled)
 
             Picker(Localizer.shared.text("settings.drag_overlay_dock_side"), selection: $settings.dragOverlayDockSide) {

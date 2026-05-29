@@ -57,6 +57,7 @@ struct HUDProgressView: View {
         let currentFormat = settings.defaultFormat
         let currentZipMethod = settings.zipMethod
         let currentSplitSizeMB = settings.splitSizeMB
+        let currentArchivePassword = settings.archivePassword.trimmingCharacters(in: .whitespacesAndNewlines)
         let currentConflictPolicy = resolvedConflictPolicy(
             format: currentFormat,
             splitSizeMB: currentSplitSizeMB
@@ -71,6 +72,7 @@ struct HUDProgressView: View {
                         format: currentFormat,
                         zipMethod: currentZipMethod,
                         splitSizeMB: currentSplitSizeMB,
+                        password: currentArchivePassword.isEmpty ? nil : currentArchivePassword,
                         conflictPolicy: currentConflictPolicy
                     ) { line in
                         Task { @MainActor in
@@ -78,7 +80,11 @@ struct HUDProgressView: View {
                         }
                     }
                 case .extract:
-                    _ = try await EngineBridge.extract(urls: command.urls, conflictPolicy: currentConflictPolicy) { line in
+                    _ = try await EngineBridge.extract(
+                        urls: command.urls,
+                        password: currentArchivePassword.isEmpty ? nil : currentArchivePassword,
+                        conflictPolicy: currentConflictPolicy
+                    ) { line in
                         Task { @MainActor in
                             handleEngineLine(line)
                         }

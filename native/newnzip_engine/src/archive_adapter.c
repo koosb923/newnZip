@@ -105,7 +105,8 @@ static bool is_tar_format(const char *format) {
 }
 
 static bool is_external_archive_format(const char *format) {
-    return equals_ignore_case(format, "7z") ||
+    return equals_ignore_case(format, "zip") ||
+           equals_ignore_case(format, "7z") ||
            equals_ignore_case(format, "wim");
 }
 
@@ -346,30 +347,50 @@ void adapter_create(int argc, char **argv, const RuntimeOptions *options) {
 
     int input_count = argc - 3;
     if (is_external_archive_format(options->archive_format)) {
-        if (equals_ignore_case(options->archive_format, "7z")) {
+        if (equals_ignore_case(options->archive_format, "zip") ||
+            equals_ignore_case(options->archive_format, "7z")) {
             char *sevenzip = find_tool("7zz", "7z");
             if (!sevenzip) {
-                fail("7Z 생성 backend가 없습니다. 7zz/7z를 설치하거나 NEWNZIP_BACKEND_DIR에 번들하세요");
+                fail("ZIP/7Z 생성 backend가 없습니다. 7zz/7z를 설치하거나 NEWNZIP_BACKEND_DIR에 번들하세요");
             }
-            char **command = calloc((size_t) input_count + 6, sizeof(char *));
+            size_t extra_args = (options->password && *options->password) ? 2u : 0u;
+            char **command = calloc((size_t) input_count + 6u + extra_args, sizeof(char *));
             if (!command) {
                 fail("메모리가 부족합니다");
             }
             command[0] = sevenzip;
             command[1] = "a";
-            command[2] = "-t7z";
-            command[3] = argv[2];
-            for (int i = 0; i < input_count; i++) {
-                command[4 + i] = argv[3 + i];
+            command[2] = equals_ignore_case(options->archive_format, "zip") ? "-tzip" : "-t7z";
+            int next_index = 3;
+            if (options->password && *options->password) {
+                size_t password_arg_length = strlen(options->password) + 3;
+                char *password_arg = malloc(password_arg_length);
+                if (!password_arg) {
+                    free(command);
+                    free(sevenzip);
+                    fail("메모리가 부족합니다");
+                }
+                snprintf(password_arg, password_arg_length, "-p%s", options->password);
+                command[next_index++] = password_arg;
+                if (equals_ignore_case(options->archive_format, "7z")) {
+                    command[next_index++] = "-mhe=on";
+                }
             }
-            command[4 + input_count] = NULL;
+            command[next_index++] = argv[2];
+            for (int i = 0; i < input_count; i++) {
+                command[next_index + i] = argv[3 + i];
+            }
+            command[next_index + input_count] = NULL;
             int exit_code = run_process(command);
+            if (options->password && *options->password) {
+                free(command[3]);
+            }
             free(command);
             free(sevenzip);
             if (exit_code != 0) {
-                fail("7Z adapter 생성에 실패했습니다");
+                fail("ZIP/7Z adapter 생성에 실패했습니다");
             }
-            printf("생성 완료: %s (7z adapter)\n", argv[2]);
+            printf("생성 완료: %s (%s adapter)\n", argv[2], options->archive_format);
             return;
         }
         if (equals_ignore_case(options->archive_format, "wim")) {
@@ -453,7 +474,7 @@ void adapter_create(int argc, char **argv, const RuntimeOptions *options) {
     printf("생성 완료: %s (%s adapter)\n", argv[2], options->archive_format);
 }
 
-void adapter_extract(const char *archive_path, const char *destination) {
+void adapter_extract(const char *archive_path, const char *destination, const RuntimeOptions *options) {
     if (mkdir(destination, 0755) != 0 && errno != EEXIST) {
         fail_errno(destination);
     }
@@ -486,7 +507,8 @@ void adapter_extract(const char *archive_path, const char *destination) {
         fail("stream 해제 backend가 없습니다. 필요한 코덱을 설치하거나 NEWNZIP_BACKEND_DIR에 번들하세요");
     }
 
-    if (is_sevenzip_extract_path(archive_path)) {
+    if ((options && options->password && *options->password && has_suffix_ignore_case(archive_path, ".zip")) ||
+        is_sevenzip_extract_path(archive_path)) {
         char *sevenzip = find_tool("7zz", "7z");
         if (!sevenzip) {
             fail("7Z/RAR 계열 해제 backend가 없습니다. 7zz/7z를 설치하거나 NEWNZIP_BACKEND_DIR에 번들하세요");
@@ -499,16 +521,27 @@ void adapter_extract(const char *archive_path, const char *destination) {
         }
         snprintf(output_arg, output_arg_length, "-o%s", destination);
 
-        char *const command[] = {
-            sevenzip,
-            "x",
-            "-y",
-            output_arg,
-            (char *) archive_path,
-            NULL
-        };
+        char *command[7] = { sevenzip, "x", "-y", output_arg, (char *) archive_path, NULL, NULL };
+        if (options && options->password && *options->password) {
+            size_t password_arg_length = strlen(options->password) + 3;
+            char *password_arg = malloc(password_arg_length);
+            if (!password_arg) {
+                free(output_arg);
+                free(sevenzip);
+                fail("메모리가 부족합니다");
+            }
+            snprintf(password_arg, password_arg_length, "-p%s", options->password);
+            command[2] = password_arg;
+            command[3] = "-y";
+            command[4] = output_arg;
+            command[5] = (char *) archive_path;
+            command[6] = NULL;
+        }
 
         int exit_code = run_process(command);
+        if (options && options->password && *options->password) {
+            free(command[2]);
+        }
         free(output_arg);
         free(sevenzip);
         if (exit_code != 0) {

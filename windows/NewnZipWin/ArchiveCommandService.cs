@@ -37,6 +37,12 @@ public static class ArchiveCommandService
 {
     private const string SettingsRegistryPath = @"Software\newnZip";
     private const string ConflictPolicyRegistryName = "OutputConflictPolicy";
+    private static readonly HashSet<string> ArchiveExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".zip", ".7z", ".rar", ".tar", ".tgz", ".gz", ".bz2", ".xz", ".zst", ".zstd",
+        ".lz4", ".br", ".brotli", ".cab", ".iso", ".wim", ".arj", ".lzh", ".lha",
+        ".cpio", ".rpm", ".deb", ".img", ".001"
+    };
 
     public static OutputConflictPolicy ConflictPolicy
     {
@@ -103,6 +109,24 @@ public static class ArchiveCommandService
             : null;
     }
 
+    public static ArchiveCommand FromDroppedPaths(IEnumerable<string> paths)
+    {
+        var resolved = paths
+            .Where(path => File.Exists(path) || Directory.Exists(path))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+
+        if (resolved.Length == 0)
+        {
+            return new ArchiveCommand(ArchiveCommandKind.None, []);
+        }
+
+        var shouldExtract = resolved.All(IsArchivePath);
+        return new ArchiveCommand(
+            shouldExtract ? ArchiveCommandKind.Extract : ArchiveCommandKind.Compress,
+            resolved);
+    }
+
     public static void RevealResult(ArchiveCommandResult result)
     {
         if (!result.Success)
@@ -155,7 +179,16 @@ public static class ArchiveCommandService
             ? Path.Combine(Path.GetTempPath(), $"newnzip-{Guid.NewGuid():N}.zip")
             : output;
 
-        var exitCode = Run(engine, new[] { "create", tempOutput }.Concat(paths), onLine, cancellationToken);
+        var archivePassword = AppPreferences.ArchivePassword.Trim();
+        var createArguments = new List<string> { "create" };
+        if (!string.IsNullOrEmpty(archivePassword))
+        {
+            createArguments.Add($"--password={archivePassword}");
+        }
+        createArguments.Add(tempOutput);
+        createArguments.AddRange(paths);
+
+        var exitCode = Run(engine, createArguments, onLine, cancellationToken);
         if (exitCode != 0)
         {
             return new ArchiveCommandResult(false, $"압축 실패: exit code {exitCode}");
@@ -208,7 +241,15 @@ public static class ArchiveCommandService
             var parent = Path.GetDirectoryName(archive) ?? Environment.CurrentDirectory;
             var destination = Path.Combine(parent, ExtractionDirectoryName(archive));
             destination = ResolveOutputPath(destination, isSplitOutput: false, ConflictPolicy);
-            exitCode = Math.Max(exitCode, Run(engine, new[] { "extract", archiveToExtract, destination }, onLine, cancellationToken));
+            var archivePassword = AppPreferences.ArchivePassword.Trim();
+            var extractArguments = new List<string> { "extract" };
+            if (!string.IsNullOrEmpty(archivePassword))
+            {
+                extractArguments.Add($"--password={archivePassword}");
+            }
+            extractArguments.Add(archiveToExtract);
+            extractArguments.Add(destination);
+            exitCode = Math.Max(exitCode, Run(engine, extractArguments, onLine, cancellationToken));
             if (exitCode == 0)
             {
                 destinations.Add(destination);
@@ -341,6 +382,18 @@ public static class ArchiveCommandService
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     private static extern int MessageBox(IntPtr hWnd, string text, string caption, uint type);
+
+    private static bool IsArchivePath(string path)
+    {
+        if (path.EndsWith(".zip.001", StringComparison.OrdinalIgnoreCase) ||
+            path.EndsWith(".7z.001", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        var extension = Path.GetExtension(path);
+        return !string.IsNullOrEmpty(extension) && ArchiveExtensions.Contains(extension);
+    }
 
     private static string ExtractionDirectoryName(string archive)
     {
