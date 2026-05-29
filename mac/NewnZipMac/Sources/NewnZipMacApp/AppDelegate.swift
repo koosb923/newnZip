@@ -46,16 +46,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         receivedFileOpenEvent = true
         delayedMainWindow?.cancel()
 
-        guard let intent = DropResolver.resolve(urls: urls) else {
-            showMainWindow()
-            return
-        }
+        let intent = DropResolver.resolve(urls: urls)
 
         let command: HUDCommand
         switch intent {
         case .compress(let items):
             command = HUDCommand(kind: .compress, urls: items)
         case .extract(let items):
+            command = HUDCommand(kind: .extract, urls: items)
+        case .chooseForMultipleArchives(let items):
             command = HUDCommand(kind: .extract, urls: items)
         }
         showHUD(command: command, terminatesWhenDone: mainWindow == nil)

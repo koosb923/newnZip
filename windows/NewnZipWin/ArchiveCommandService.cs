@@ -89,11 +89,30 @@ public static class ArchiveCommandService
     {
         return Task.Run(() => command.Kind switch
         {
-            ArchiveCommandKind.Compress => Compress(command.Paths, splitSizeMb: 0, onLine, cancellationToken),
-            ArchiveCommandKind.SplitCompress => Compress(command.Paths, command.SplitSizeMb, onLine, cancellationToken),
-            ArchiveCommandKind.Extract => Extract(command.Paths, onLine, cancellationToken),
+            ArchiveCommandKind.Compress => Compress(command.Paths, splitSizeMb: 0, password: null, onLine, cancellationToken),
+            ArchiveCommandKind.SplitCompress => Compress(command.Paths, command.SplitSizeMb, password: null, onLine, cancellationToken),
+            ArchiveCommandKind.Extract => Extract(command.Paths, password: null, onLine, cancellationToken),
             _ => new ArchiveCommandResult(false, "처리할 명령이 없습니다.")
         }, cancellationToken);
+    }
+
+    public static Task<ArchiveCommandResult> ExecuteCompressAsync(
+        string[] paths,
+        int splitSizeMb = 0,
+        string? password = null,
+        Action<string>? onLine = null,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.Run(() => Compress(paths, splitSizeMb, password, onLine, cancellationToken), cancellationToken);
+    }
+
+    public static Task<ArchiveCommandResult> ExecuteExtractAsync(
+        string[] paths,
+        string? password = null,
+        Action<string>? onLine = null,
+        CancellationToken cancellationToken = default)
+    {
+        return Task.Run(() => Extract(paths, password, onLine, cancellationToken), cancellationToken);
     }
 
     public static ArchiveProgress? ParseProgressLine(string line)
@@ -153,6 +172,7 @@ public static class ArchiveCommandService
     private static ArchiveCommandResult Compress(
         string[] paths,
         int splitSizeMb,
+        string? password,
         Action<string>? onLine,
         CancellationToken cancellationToken)
     {
@@ -179,7 +199,7 @@ public static class ArchiveCommandService
             ? Path.Combine(Path.GetTempPath(), $"newnzip-{Guid.NewGuid():N}.zip")
             : output;
 
-        var archivePassword = AppPreferences.ArchivePassword.Trim();
+        var archivePassword = string.IsNullOrWhiteSpace(password) ? AppPreferences.ArchivePassword.Trim() : password.Trim();
         var createArguments = new List<string> { "create" };
         if (!string.IsNullOrEmpty(archivePassword))
         {
@@ -211,7 +231,7 @@ public static class ArchiveCommandService
         return new ArchiveCommandResult(true, $"압축 완료: {output}", [output]);
     }
 
-    private static ArchiveCommandResult Extract(string[] paths, Action<string>? onLine, CancellationToken cancellationToken)
+    private static ArchiveCommandResult Extract(string[] paths, string? password, Action<string>? onLine, CancellationToken cancellationToken)
     {
         if (paths.Length == 0)
         {
@@ -241,7 +261,7 @@ public static class ArchiveCommandService
             var parent = Path.GetDirectoryName(archive) ?? Environment.CurrentDirectory;
             var destination = Path.Combine(parent, ExtractionDirectoryName(archive));
             destination = ResolveOutputPath(destination, isSplitOutput: false, ConflictPolicy);
-            var archivePassword = AppPreferences.ArchivePassword.Trim();
+            var archivePassword = string.IsNullOrWhiteSpace(password) ? AppPreferences.ArchivePassword.Trim() : password.Trim();
             var extractArguments = new List<string> { "extract" };
             if (!string.IsNullOrEmpty(archivePassword))
             {

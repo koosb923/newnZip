@@ -65,8 +65,12 @@ final class AppSettings: ObservableObject {
         didSet { UserDefaults.standard.set(defaultFormat.rawValue, forKey: "default_format") }
     }
 
-    @Published var splitSizeMB: Int {
-        didSet { UserDefaults.standard.set(splitSizeMB, forKey: "split_size_mb") }
+    @Published var defaultSplitSizeMB: Int {
+        didSet { UserDefaults.standard.set(defaultSplitSizeMB, forKey: "default_split_size_mb") }
+    }
+
+    @Published var defaultSplitPartCount: Int {
+        didSet { UserDefaults.standard.set(defaultSplitPartCount, forKey: "default_split_part_count") }
     }
 
     @Published var outputConflictPolicy: OutputConflictPolicy {
@@ -105,7 +109,11 @@ final class AppSettings: ObservableObject {
     private init() {
         let savedFormat = UserDefaults.standard.string(forKey: "default_format")
         self.defaultFormat = ArchiveFormat(rawValue: savedFormat ?? "zip") ?? .zip
-        self.splitSizeMB = UserDefaults.standard.integer(forKey: "split_size_mb")
+        let legacySplitSize = UserDefaults.standard.integer(forKey: "split_size_mb")
+        let savedSplitSize = UserDefaults.standard.object(forKey: "default_split_size_mb") as? Int
+        self.defaultSplitSizeMB = max(1, savedSplitSize ?? max(1, legacySplitSize == 0 ? 100 : legacySplitSize))
+        let savedSplitPartCount = UserDefaults.standard.object(forKey: "default_split_part_count") as? Int
+        self.defaultSplitPartCount = max(2, savedSplitPartCount ?? 4)
         let savedConflictPolicy = UserDefaults.standard.string(forKey: "output_conflict_policy")
         self.outputConflictPolicy = OutputConflictPolicy(rawValue: savedConflictPolicy ?? "append") ?? .append
         let savedZipMethod = UserDefaults.standard.string(forKey: "zip_method")

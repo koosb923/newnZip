@@ -5,7 +5,8 @@ struct SettingsView: View {
     @StateObject private var defaultAppService = DefaultArchiveAppService.shared
     @StateObject private var finderIntegration = FinderIntegrationService.shared
     @Environment(\.dismiss) private var dismiss
-    @State private var splitSizeText = "\(AppSettings.shared.splitSizeMB)"
+    @State private var splitSizeText = "\(AppSettings.shared.defaultSplitSizeMB)"
+    @State private var splitPartCountText = "\(AppSettings.shared.defaultSplitPartCount)"
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -27,7 +28,10 @@ struct SettingsView: View {
                 }
             }
 
-            TextField(Localizer.shared.text("settings.split_size_mb"), text: $splitSizeText)
+            TextField(Localizer.shared.text("settings.default_split_size_mb"), text: $splitSizeText)
+                .textFieldStyle(.roundedBorder)
+
+            TextField(Localizer.shared.text("settings.default_split_part_count"), text: $splitPartCountText)
                 .textFieldStyle(.roundedBorder)
 
             Picker(Localizer.shared.text("settings.output_conflict_policy"), selection: $settings.outputConflictPolicy) {
@@ -90,7 +94,8 @@ struct SettingsView: View {
                     dismiss()
                 }
                 Button(Localizer.shared.text("settings.save")) {
-                    settings.splitSizeMB = max(0, Int(splitSizeText.trimmingCharacters(in: .whitespacesAndNewlines)) ?? 0)
+                    settings.defaultSplitSizeMB = max(1, Int(splitSizeText.trimmingCharacters(in: .whitespacesAndNewlines)) ?? 100)
+                    settings.defaultSplitPartCount = max(2, Int(splitPartCountText.trimmingCharacters(in: .whitespacesAndNewlines)) ?? 4)
                     Localizer.shared.setLanguage(settings.language)
                     dismiss()
                 }

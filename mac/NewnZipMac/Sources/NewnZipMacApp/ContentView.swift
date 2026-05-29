@@ -29,8 +29,8 @@ struct ContentView: View {
                 isCompleted: isCompleted,
                 progressValue: progressValue,
                 statusText: currentStatusText,
-                onDropURLs: handleDrop(urls:),
-                onTap: openSelectionPanel,
+                onDropURLs: handleDrop(urls:action:),
+                onTap: openSelectionPanel(action:),
                 onCancel: cancelCurrentOperation
             )
             .frame(minWidth: 460, minHeight: 360)
@@ -51,92 +51,178 @@ struct ContentView: View {
         return Localizer.shared.text("simple.idle_status")
     }
 
-    private func openSelectionPanel() {
+    private func openSelectionPanel(action: DropPanelAction) {
         let urls = SelectionPanel.pickURLs()
         guard !urls.isEmpty else { return }
-        handleDrop(urls: urls)
+        handleDrop(urls: urls, action: action)
     }
 
-    private func handleDrop(urls: [URL]) {
+    private func handleDrop(urls: [URL], action: DropPanelAction) {
         guard !isProcessing else { return }
 
-        guard let intent = DropResolver.resolve(urls: urls) else {
-            statusText = Localizer.shared.text("simple.mixed_drop_error")
-            isCompleted = false
-            progressValue = nil
-            return
+        switch action {
+        case .standard:
+            handleStandardDrop(urls: urls)
+        case .passwordCompress:
+            guard let password = promptForPassword(defaultValue: settings.archivePassword) else {
+                return
+            }
+            let format = passwordCompatibleFormat(for: settings.defaultFormat)
+            startCompression(
+                urls: urls,
+                format: format,
+                zipMethod: settings.zipMethod,
+                splitSizeMB: 0,
+                password: password
+            )
+        case .splitCompress:
+            guard let splitRequest = promptForSplitRequest(urls: urls) else {
+                return
+            }
+            startCompression(
+                urls: urls,
+                format: .zip,
+                zipMethod: settings.zipMethod,
+                splitSizeMB: splitRequest.splitSizeMB,
+                password: nil
+            )
         }
+    }
+
+    private func handleStandardDrop(urls: [URL]) {
+        switch DropResolver.resolve(urls: urls) {
+        case .compress(let items):
+            startCompression(
+                urls: items,
+                format: settings.defaultFormat,
+                zipMethod: settings.zipMethod,
+                splitSizeMB: 0,
+                password: nil
+            )
+        case .extract(let items):
+            startExtraction(urls: items, password: normalizedPassword)
+        case .chooseForMultipleArchives(let items):
+            switch promptForMultipleArchiveAction() {
+            case .extractEach:
+                startExtraction(urls: items, password: normalizedPassword)
+            case .compressTogether:
+                startCompression(
+                    urls: items,
+                    format: settings.defaultFormat,
+                    zipMethod: settings.zipMethod,
+                    splitSizeMB: 0,
+                    password: nil
+                )
+            case .cancel:
+                return
+            }
+        }
+    }
+
+    private var normalizedPassword: String? {
+        let value = settings.archivePassword.trimmingCharacters(in: .whitespacesAndNewlines)
+        return value.isEmpty ? nil : value
+    }
+
+    private func startCompression(
+        urls: [URL],
+        format: ArchiveFormat,
+        zipMethod: ZipMethod,
+        splitSizeMB: Int,
+        password: String?
+    ) {
+        guard !urls.isEmpty else { return }
 
         isProcessing = true
         isCompleted = false
         progressValue = 0.0
 
-        let currentFormat = settings.defaultFormat
-        let currentZipMethod = settings.zipMethod
-        let currentSplitSizeMB = settings.splitSizeMB
-        let currentArchivePassword = settings.archivePassword.trimmingCharacters(in: .whitespacesAndNewlines)
-        let currentConflictPolicy = resolvedConflictPolicy(for: intent, format: currentFormat, splitSizeMB: currentSplitSizeMB)
-        switch intent {
-        case .compress(let items):
-            statusText = Localizer.shared.text("simple.status_compressing", ["count": "\(items.count)", "format": currentFormat.rawValue])
-        case .extract(let items):
-            statusText = Localizer.shared.text("simple.status_extracting", ["count": "\(items.count)"])
-        }
+        let conflictPolicy = resolvedConflictPolicy(for: .compress(urls), format: format, splitSizeMB: splitSizeMB)
+        statusText = splitSizeMB > 0
+            ? "분할 압축 중..."
+            : Localizer.shared.text("simple.status_compressing", ["count": "\(urls.count)", "format": format.rawValue])
 
         operationTask = Task.detached(priority: .userInitiated) {
             do {
-                switch intent {
-                case .compress(let items):
-                    _ = try await EngineBridge.compress(
-                        urls: items,
-                        format: currentFormat,
-                        zipMethod: currentZipMethod,
-                        splitSizeMB: currentSplitSizeMB,
-                        password: currentArchivePassword.isEmpty ? nil : currentArchivePassword,
-                        conflictPolicy: currentConflictPolicy
-                    ) { line in
-                        Task { @MainActor in
-                            handleEngineLine(line)
-                        }
-                    }
-                case .extract(let items):
-                    _ = try await EngineBridge.extract(
-                        urls: items,
-                        password: currentArchivePassword.isEmpty ? nil : currentArchivePassword,
-                        conflictPolicy: currentConflictPolicy
-                    ) { line in
-                        Task { @MainActor in
-                            handleEngineLine(line)
-                        }
+                _ = try await EngineBridge.compress(
+                    urls: urls,
+                    format: format,
+                    zipMethod: zipMethod,
+                    splitSizeMB: splitSizeMB,
+                    password: password,
+                    conflictPolicy: conflictPolicy
+                ) { line in
+                    Task { @MainActor in
+                        handleEngineLine(line)
                     }
                 }
 
-                await MainActor.run {
-                    statusText = Localizer.shared.text("simple.status_done")
-                    isProcessing = false
-                    progressValue = 1.0
-                    isCompleted = true
-                    operationTask = nil
-                    scheduleReset()
-                }
+                await finishSuccess()
             } catch is CancellationError {
-                await MainActor.run {
-                    statusText = Localizer.shared.text("simple.status_cancelled")
-                    isProcessing = false
-                    isCompleted = false
-                    progressValue = nil
-                    operationTask = nil
-                }
+                await finishCancelled()
             } catch {
-                await MainActor.run {
-                    statusText = Localizer.shared.text("simple.status_failed")
-                    isProcessing = false
-                    isCompleted = false
-                    progressValue = nil
-                    operationTask = nil
-                }
+                await finishFailure(error)
             }
         }
+    }
+
+    private func startExtraction(urls: [URL], password: String?) {
+        guard !urls.isEmpty else { return }
+
+        isProcessing = true
+        isCompleted = false
+        progressValue = 0.0
+        statusText = Localizer.shared.text("simple.status_extracting", ["count": "\(urls.count)"])
+
+        let conflictPolicy = resolvedConflictPolicy(for: .extract(urls), format: settings.defaultFormat, splitSizeMB: 0)
+
+        operationTask = Task.detached(priority: .userInitiated) {
+            do {
+                _ = try await EngineBridge.extract(
+                    urls: urls,
+                    password: password,
+                    conflictPolicy: conflictPolicy
+                ) { line in
+                    Task { @MainActor in
+                        handleEngineLine(line)
+                    }
+                }
+
+                await finishSuccess()
+            } catch is CancellationError {
+                await finishCancelled()
+            } catch {
+                await finishFailure(error)
+            }
+        }
+    }
+
+    @MainActor
+    private func finishSuccess() {
+        statusText = Localizer.shared.text("simple.status_done")
+        isProcessing = false
+        progressValue = 1.0
+        isCompleted = true
+        operationTask = nil
+        scheduleReset()
+    }
+
+    @MainActor
+    private func finishCancelled() {
+        statusText = Localizer.shared.text("simple.status_cancelled")
+        isProcessing = false
+        isCompleted = false
+        progressValue = nil
+        operationTask = nil
+    }
+
+    @MainActor
+    private func finishFailure(_ error: Error) {
+        statusText = Localizer.shared.text("simple.status_failed")
+        isProcessing = false
+        isCompleted = false
+        progressValue = nil
+        operationTask = nil
     }
 
     private func cancelCurrentOperation() {
@@ -145,13 +231,9 @@ struct ContentView: View {
         operationTask?.cancel()
     }
 
-    private func openHUD(for intent: DropIntent?, urls: [URL]) {
-        guard let intent else {
-            handleDrop(urls: urls)
-            return
-        }
+    private func openHUD(for intent: DropIntent, urls: [URL]) {
         let command = switch intent {
-        case .compress: "--hud-compress"
+        case .compress, .chooseForMultipleArchives: "--hud-compress"
         case .extract: "--hud-extract"
         }
         let configuration = NSWorkspace.OpenConfiguration()
@@ -164,7 +246,7 @@ struct ContentView: View {
             return settings.outputConflictPolicy
         }
         let hasCollision = switch intent {
-        case .compress(let items):
+        case .compress(let items), .chooseForMultipleArchives(let items):
             EngineBridge.outputCollisionExists(urls: items, format: format, splitSizeMB: splitSizeMB)
         case .extract(let items):
             EngineBridge.extractionCollisionExists(urls: items)
@@ -212,4 +294,127 @@ struct ContentView: View {
             }
         }
     }
+
+    private func passwordCompatibleFormat(for format: ArchiveFormat) -> ArchiveFormat {
+        switch format {
+        case .zip, .sevenZip:
+            return format
+        default:
+            return .zip
+        }
+    }
+
+    private func promptForPassword(defaultValue: String) -> String? {
+        let alert = NSAlert()
+        alert.messageText = "암호로 압축"
+        alert.informativeText = "압축에 사용할 암호를 입력하세요."
+        alert.addButton(withTitle: "압축")
+        alert.addButton(withTitle: "취소")
+
+        let secureField = NSSecureTextField(frame: NSRect(x: 0, y: 0, width: 260, height: 24))
+        secureField.stringValue = defaultValue
+        alert.accessoryView = secureField
+
+        guard alert.runModal() == .alertFirstButtonReturn else {
+            return nil
+        }
+
+        let password = secureField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !password.isEmpty else {
+            return nil
+        }
+        settings.archivePassword = password
+        return password
+    }
+
+    private func promptForMultipleArchiveAction() -> MultipleArchiveAction {
+        let alert = NSAlert()
+        alert.messageText = "여러 압축파일을 어떻게 처리할까요?"
+        alert.informativeText = "각각 압축을 풀거나, 선택한 압축파일들을 다시 하나로 압축할 수 있습니다."
+        alert.addButton(withTitle: "각각 압축 풀기")
+        alert.addButton(withTitle: "하나로 압축하기")
+        alert.addButton(withTitle: "취소")
+
+        switch alert.runModal() {
+        case .alertFirstButtonReturn:
+            return .extractEach
+        case .alertSecondButtonReturn:
+            return .compressTogether
+        default:
+            return .cancel
+        }
+    }
+
+    private func promptForSplitRequest(urls: [URL]) -> SplitRequest? {
+        let alert = NSAlert()
+        alert.messageText = "분할 압축"
+        alert.informativeText = "용량 기준 또는 개수 기준으로 분할 압축 옵션을 선택하세요."
+        alert.addButton(withTitle: "적용")
+        alert.addButton(withTitle: "취소")
+
+        let modePicker = NSPopUpButton(frame: NSRect(x: 0, y: 36, width: 260, height: 26), pullsDown: false)
+        modePicker.addItems(withTitles: ["몇 MB씩 나누기", "몇 개로 나누기"])
+
+        let valueField = NSTextField(frame: NSRect(x: 0, y: 0, width: 260, height: 24))
+        valueField.stringValue = "\(settings.defaultSplitSizeMB)"
+
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 260, height: 62))
+        container.addSubview(modePicker)
+        container.addSubview(valueField)
+        alert.accessoryView = container
+
+        guard alert.runModal() == .alertFirstButtonReturn else {
+            return nil
+        }
+
+        let value = max(1, Int(valueField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)) ?? 0)
+        if modePicker.indexOfSelectedItem == 0 {
+            settings.defaultSplitSizeMB = value
+            return SplitRequest(splitSizeMB: value)
+        }
+
+        settings.defaultSplitPartCount = max(2, value)
+        let estimatedSplitSize = estimateSplitSizeMB(for: settings.defaultSplitPartCount, urls: urls)
+        return SplitRequest(splitSizeMB: estimatedSplitSize)
+    }
+
+    private func estimateSplitSizeMB(for partCount: Int, urls: [URL]) -> Int {
+        max(1, Int(ceil(Double(totalInputBytes(for: urls)) / Double(max(2, partCount)) / 1_048_576.0)))
+    }
+
+    private func totalInputBytes(for urls: [URL]) -> UInt64 {
+        urls.reduce(0) { partialResult, url in
+            partialResult + itemSize(url)
+        }
+    }
+
+    private func itemSize(_ url: URL) -> UInt64 {
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) else {
+            return 0
+        }
+        if !isDirectory.boolValue {
+            return (try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize).map { UInt64($0) } ?? 0
+        }
+
+        let enumerator = FileManager.default.enumerator(at: url, includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey])
+        var total: UInt64 = 0
+        while let fileURL = enumerator?.nextObject() as? URL {
+            let values = try? fileURL.resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey])
+            if values?.isRegularFile == true {
+                total += UInt64(values?.fileSize ?? 0)
+            }
+        }
+        return total
+    }
+}
+
+private enum MultipleArchiveAction {
+    case extractEach
+    case compressTogether
+    case cancel
+}
+
+private struct SplitRequest {
+    let splitSizeMB: Int
 }

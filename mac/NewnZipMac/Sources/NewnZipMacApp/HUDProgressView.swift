@@ -56,11 +56,10 @@ struct HUDProgressView: View {
 
         let currentFormat = settings.defaultFormat
         let currentZipMethod = settings.zipMethod
-        let currentSplitSizeMB = settings.splitSizeMB
         let currentArchivePassword = settings.archivePassword.trimmingCharacters(in: .whitespacesAndNewlines)
         let currentConflictPolicy = resolvedConflictPolicy(
             format: currentFormat,
-            splitSizeMB: currentSplitSizeMB
+            splitSizeMB: 0
         )
 
         operationTask = Task.detached(priority: .userInitiated) {
@@ -71,7 +70,7 @@ struct HUDProgressView: View {
                         urls: command.urls,
                         format: currentFormat,
                         zipMethod: currentZipMethod,
-                        splitSizeMB: currentSplitSizeMB,
+                        splitSizeMB: 0,
                         password: currentArchivePassword.isEmpty ? nil : currentArchivePassword,
                         conflictPolicy: currentConflictPolicy
                     ) { line in

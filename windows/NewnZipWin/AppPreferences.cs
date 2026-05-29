@@ -14,6 +14,8 @@ public static class AppPreferences
     private const string ArchivePasswordRegistryName = "ArchivePassword";
     private const string DragOverlayEnabledRegistryName = "DragOverlayEnabled";
     private const string DragOverlayDockSideRegistryName = "DragOverlayDockSide";
+    private const string DefaultSplitSizeMbRegistryName = "DefaultSplitSizeMb";
+    private const string DefaultSplitPartCountRegistryName = "DefaultSplitPartCount";
 
     public static event Action? Changed;
 
@@ -62,6 +64,38 @@ public static class AppPreferences
         {
             using var key = Registry.CurrentUser.CreateSubKey(SettingsRegistryPath);
             key?.SetValue(DragOverlayDockSideRegistryName, value.ToString(), RegistryValueKind.String);
+            Changed?.Invoke();
+        }
+    }
+
+    public static int DefaultSplitSizeMb
+    {
+        get
+        {
+            using var key = Registry.CurrentUser.OpenSubKey(SettingsRegistryPath);
+            var value = key?.GetValue(DefaultSplitSizeMbRegistryName);
+            return value is int intValue && intValue > 0 ? intValue : 100;
+        }
+        set
+        {
+            using var key = Registry.CurrentUser.CreateSubKey(SettingsRegistryPath);
+            key?.SetValue(DefaultSplitSizeMbRegistryName, Math.Max(1, value), RegistryValueKind.DWord);
+            Changed?.Invoke();
+        }
+    }
+
+    public static int DefaultSplitPartCount
+    {
+        get
+        {
+            using var key = Registry.CurrentUser.OpenSubKey(SettingsRegistryPath);
+            var value = key?.GetValue(DefaultSplitPartCountRegistryName);
+            return value is int intValue && intValue > 1 ? intValue : 4;
+        }
+        set
+        {
+            using var key = Registry.CurrentUser.CreateSubKey(SettingsRegistryPath);
+            key?.SetValue(DefaultSplitPartCountRegistryName, Math.Max(2, value), RegistryValueKind.DWord);
             Changed?.Invoke();
         }
     }
