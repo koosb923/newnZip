@@ -50,6 +50,13 @@ enum ZipMethod: String, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 
+enum DragOverlayDockSide: String, CaseIterable, Identifiable {
+    case left = "left"
+    case right = "right"
+
+    var id: String { rawValue }
+}
+
 @MainActor
 final class AppSettings: ObservableObject {
     static let shared = AppSettings()
@@ -77,6 +84,13 @@ final class AppSettings: ObservableObject {
         }
     }
 
+    @Published var dragOverlayDockSide: DragOverlayDockSide {
+        didSet {
+            UserDefaults.standard.set(dragOverlayDockSide.rawValue, forKey: "drag_overlay_dock_side")
+            NotificationCenter.default.post(name: .dragOverlaySettingChanged, object: nil)
+        }
+    }
+
     @Published var language: AppLanguage {
         didSet {
             UserDefaults.standard.set(language.rawValue, forKey: "language")
@@ -93,6 +107,8 @@ final class AppSettings: ObservableObject {
         let savedZipMethod = UserDefaults.standard.string(forKey: "zip_method")
         self.zipMethod = ZipMethod(rawValue: savedZipMethod ?? "auto") ?? .auto
         self.dragOverlayEnabled = UserDefaults.standard.object(forKey: "drag_overlay_enabled") as? Bool ?? true
+        let savedDragOverlayDockSide = UserDefaults.standard.string(forKey: "drag_overlay_dock_side")
+        self.dragOverlayDockSide = DragOverlayDockSide(rawValue: savedDragOverlayDockSide ?? "left") ?? .left
 
         let savedLanguage = UserDefaults.standard.string(forKey: "language")
         let resolvedLanguage = AppLanguage(rawValue: savedLanguage ?? "system") ?? .system

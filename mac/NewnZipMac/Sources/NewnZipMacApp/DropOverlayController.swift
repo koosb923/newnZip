@@ -2,16 +2,19 @@ import AppKit
 
 @MainActor
 final class DropOverlayController {
+    private let overlayWidth: CGFloat = 56
     private let window: NSPanel
     private let dropView: DropOverlayView
     private var dragMonitor: Any?
     private var mouseUpMonitor: Any?
     private var isShowingForCurrentDrag = false
+    private var activeDragPasteboardChangeCount: Int?
+    private var lastPresentedFileDragChangeCount: Int?
 
     init(onDrop: @escaping @MainActor ([URL]) -> Void) {
         dropView = DropOverlayView(onDrop: onDrop)
         window = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 132, height: 420),
+            contentRect: NSRect(x: 0, y: 0, width: overlayWidth, height: 420),
             styleMask: [.borderless, .nonactivatingPanel],
             backing: .buffered,
             defer: false
@@ -19,6 +22,7 @@ final class DropOverlayController {
         window.contentView = dropView
         window.isOpaque = false
         window.backgroundColor = .clear
+        window.alphaValue = 0.9
         window.hasShadow = true
         window.hidesOnDeactivate = false
         window.level = .statusBar
@@ -53,17 +57,28 @@ final class DropOverlayController {
             self.mouseUpMonitor = nil
         }
         isShowingForCurrentDrag = false
+        activeDragPasteboardChangeCount = nil
         window.orderOut(nil)
     }
 
     private func handleDrag(event: NSEvent) {
-        guard !isShowingForCurrentDrag else {
+        let dragPasteboard = NSPasteboard(name: .drag)
+        let changeCount = dragPasteboard.changeCount
+
+        if isShowingForCurrentDrag, activeDragPasteboardChangeCount == changeCount {
             return
         }
 
-        let urls = fileURLs(from: NSPasteboard(name: .drag))
+        let urls = fileURLs(from: dragPasteboard)
         guard !urls.isEmpty else {
+            if isShowingForCurrentDrag {
+                activeDragPasteboardChangeCount = nil
+            }
             window.orderOut(nil)
+            return
+        }
+
+        guard lastPresentedFileDragChangeCount != changeCount else {
             return
         }
 
@@ -72,6 +87,8 @@ final class DropOverlayController {
             return
         }
         isShowingForCurrentDrag = true
+        activeDragPasteboardChangeCount = changeCount
+        lastPresentedFileDragChangeCount = changeCount
         window.orderFrontRegardless()
     }
 
@@ -79,6 +96,7 @@ final class DropOverlayController {
         Task {
             try? await Task.sleep(for: .milliseconds(250))
             isShowingForCurrentDrag = false
+            activeDragPasteboardChangeCount = nil
             window.orderOut(nil)
         }
     }
@@ -88,20 +106,22 @@ final class DropOverlayController {
         guard let visibleFrame = screen?.visibleFrame else {
             return false
         }
-        let frame = window.frame
+        let dockSide = AppSettings.shared.dragOverlayDockSide
         let fallback = CGPoint(x: visibleFrame.midX, y: visibleFrame.midY)
         let mouse = mouseLocation ?? fallback
         if mouse.y > visibleFrame.maxY - 90 {
             return false
         }
 
-        let targetX = visibleFrame.maxX - frame.width
-        let targetY = visibleFrame.midY - frame.height / 2
-        let origin = CGPoint(
+        let targetX = dockSide == .left ? visibleFrame.minX : visibleFrame.maxX - overlayWidth
+        let targetFrame = NSRect(
             x: targetX,
-            y: min(max(targetY, visibleFrame.minY + 12), visibleFrame.maxY - frame.height - 12)
+            y: visibleFrame.minY,
+            width: overlayWidth,
+            height: visibleFrame.height
         )
-        window.setFrameOrigin(origin)
+        window.setFrame(targetFrame, display: false)
+        dropView.applyDockSide(dockSide)
         return true
     }
 
@@ -133,6 +153,7 @@ private final class DropOverlayView: NSVisualEffectView {
     private let onDrop: @MainActor ([URL]) -> Void
     private let titleLabel = NSTextField(labelWithString: "newnZip")
     private let detailLabel = NSTextField(labelWithString: "놓아서\n압축/해제")
+    private let cornerRadius: CGFloat = 18
 
     init(onDrop: @escaping @MainActor ([URL]) -> Void) {
         self.onDrop = onDrop
@@ -141,12 +162,12 @@ private final class DropOverlayView: NSVisualEffectView {
         blendingMode = .behindWindow
         state = .active
         wantsLayer = true
-        layer?.cornerRadius = 12
         layer?.masksToBounds = true
         layer?.borderWidth = 1
         layer?.borderColor = NSColor.separatorColor.withAlphaComponent(0.35).cgColor
         registerForDraggedTypes([.fileURL])
         setupLabels()
+        applyDockSide(AppSettings.shared.dragOverlayDockSide)
     }
 
     @available(*, unavailable)
@@ -167,12 +188,22 @@ private final class DropOverlayView: NSVisualEffectView {
         return true
     }
 
+    func applyDockSide(_ dockSide: DragOverlayDockSide) {
+        guard let layer else {
+            return
+        }
+        layer.cornerRadius = cornerRadius
+        layer.maskedCorners = dockSide == .left
+            ? [.layerMaxXMinYCorner, .layerMaxXMaxYCorner]
+            : [.layerMinXMinYCorner, .layerMinXMaxYCorner]
+    }
+
     private func setupLabels() {
-        titleLabel.font = .systemFont(ofSize: 15, weight: .semibold)
+        titleLabel.font = .systemFont(ofSize: 13, weight: .semibold)
         titleLabel.textColor = .labelColor
         titleLabel.alignment = .center
 
-        detailLabel.font = .systemFont(ofSize: 12, weight: .regular)
+        detailLabel.font = .systemFont(ofSize: 11, weight: .regular)
         detailLabel.textColor = .secondaryLabelColor
         detailLabel.alignment = .center
         detailLabel.maximumNumberOfLines = 2
@@ -186,7 +217,9 @@ private final class DropOverlayView: NSVisualEffectView {
 
         NSLayoutConstraint.activate([
             stack.centerXAnchor.constraint(equalTo: centerXAnchor),
-            stack.centerYAnchor.constraint(equalTo: centerYAnchor)
+            stack.centerYAnchor.constraint(equalTo: centerYAnchor),
+            stack.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: 8),
+            stack.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -8)
         ])
     }
 

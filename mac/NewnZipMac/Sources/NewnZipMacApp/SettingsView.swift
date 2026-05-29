@@ -38,6 +38,11 @@ struct SettingsView: View {
 
             Toggle(Localizer.shared.text("settings.drag_overlay"), isOn: $settings.dragOverlayEnabled)
 
+            Picker(Localizer.shared.text("settings.drag_overlay_dock_side"), selection: $settings.dragOverlayDockSide) {
+                Text(Localizer.shared.text("settings.drag_overlay_dock_side_left")).tag(DragOverlayDockSide.left)
+                Text(Localizer.shared.text("settings.drag_overlay_dock_side_right")).tag(DragOverlayDockSide.right)
+            }
+
             Divider()
 
             Toggle(isOn: Binding(

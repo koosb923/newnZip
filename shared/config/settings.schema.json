@@ -18,5 +18,10 @@
     "type": "string",
     "allowed": ["append", "overwrite", "ask"],
     "default": "append"
+  },
+  "drag_overlay_dock_side": {
+    "type": "string",
+    "allowed": ["left", "right"],
+    "default": "left"
   }
 }
