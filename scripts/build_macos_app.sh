@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 APP_PATH="${1:-$HOME/Desktop/newnZip.app}"
+DMG_PATH="${2:-$(dirname "$APP_PATH")/newnZip.dmg}"
 TMP_DIR="${TMPDIR:-/tmp}/newnzip-macos-build"
 SDK_PATH="${SDKROOT:-/Library/Developer/CommandLineTools/SDKs/MacOSX15.4.sdk}"
 
@@ -48,6 +49,7 @@ mkdir -p \
 cp "$TMP_DIR/NewnZipMac" "$APP_PATH/Contents/MacOS/NewnZipMac"
 cp "$TMP_DIR/newnzip-engine" "$APP_PATH/Contents/Frameworks/newnzip_engine/newnzip-engine"
 cp "$ROOT_DIR/mac/NewnZipMac/Sources/NewnZipMacApp/Resources/locales/"*.json "$APP_PATH/Contents/Resources/locales/"
+cp "$ROOT_DIR/assets/newnzip-app-icon.icns" "$APP_PATH/Contents/Resources/newnzip-app-icon.icns"
 
 cat > "$APP_PATH/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
@@ -66,6 +68,8 @@ cat > "$APP_PATH/Contents/Info.plist" <<'PLIST'
   <string>0.1</string>
   <key>CFBundleExecutable</key>
   <string>NewnZipMac</string>
+  <key>CFBundleIconFile</key>
+  <string>newnzip-app-icon</string>
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>LSMinimumSystemVersion</key>
@@ -474,6 +478,19 @@ PLIST
 
 codesign --force --deep --sign - "$APP_PATH"
 
+DMG_ROOT="$TMP_DIR/dmg-root"
+rm -rf "$DMG_ROOT"
+mkdir -p "$DMG_ROOT"
+cp -R "$APP_PATH" "$DMG_ROOT/newnZip.app"
+ln -s /Applications "$DMG_ROOT/Applications"
+hdiutil create \
+  -volname "newnZip" \
+  -srcfolder "$DMG_ROOT" \
+  -ov \
+  -format UDZO \
+  "$DMG_PATH"
+
 echo "Built $APP_PATH"
+echo "Built $DMG_PATH"
 file "$APP_PATH/Contents/MacOS/NewnZipMac"
 file "$APP_PATH/Contents/Frameworks/newnzip_engine/newnzip-engine"
