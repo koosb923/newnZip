@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var mainWindow: NSWindow?
     private var hudWindows: [NSWindow] = []
     private var dropOverlayController: DropOverlayController?
@@ -142,6 +142,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             defer: false
         )
         window.title = "newnZip"
+        window.isReleasedWhenClosed = false
+        window.delegate = self
         window.contentView = NSHostingView(rootView: ContentView())
         window.center()
         window.makeKeyAndOrderFront(nil)
@@ -157,6 +159,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             defer: false
         )
         window.title = "newnZip"
+        window.isReleasedWhenClosed = false
+        window.delegate = self
         window.contentView = NSHostingView(
             rootView: HUDProgressView(command: command, terminatesWhenDone: terminatesWhenDone)
         )
@@ -164,6 +168,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         hudWindows.append(window)
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        guard let window = notification.object as? NSWindow else {
+            return
+        }
+
+        if window === mainWindow {
+            mainWindow = nil
+        }
+        hudWindows.removeAll { $0 === window }
     }
 
     private func startDropOverlay() {
