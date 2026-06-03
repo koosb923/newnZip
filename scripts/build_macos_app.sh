@@ -3,7 +3,6 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 APP_PATH="${1:-$HOME/Desktop/newnZip.app}"
-DMG_PATH="${2:-$(dirname "$APP_PATH")/newnZip.dmg}"
 TMP_DIR="${TMPDIR:-/tmp}/newnzip-macos-build"
 SDK_PATH="${SDKROOT:-/Library/Developer/CommandLineTools/SDKs/MacOSX15.4.sdk}"
 
@@ -478,19 +477,6 @@ PLIST
 
 codesign --force --deep --sign - "$APP_PATH"
 
-DMG_ROOT="$TMP_DIR/dmg-root"
-rm -rf "$DMG_ROOT"
-mkdir -p "$DMG_ROOT"
-cp -R "$APP_PATH" "$DMG_ROOT/newnZip.app"
-ln -s /Applications "$DMG_ROOT/Applications"
-hdiutil create \
-  -volname "newnZip" \
-  -srcfolder "$DMG_ROOT" \
-  -ov \
-  -format UDZO \
-  "$DMG_PATH"
-
 echo "Built $APP_PATH"
-echo "Built $DMG_PATH"
 file "$APP_PATH/Contents/MacOS/NewnZipMac"
 file "$APP_PATH/Contents/Frameworks/newnzip_engine/newnzip-engine"

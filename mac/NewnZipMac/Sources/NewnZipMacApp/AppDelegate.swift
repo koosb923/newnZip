@@ -11,6 +11,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var settingsObserver: NSObjectProtocol?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        if installInApplicationsIfNeeded() {
+            return
+        }
+
         if let command = HUDCommand.parse(arguments: Array(CommandLine.arguments.dropFirst())) {
             showHUD(command: command, terminatesWhenDone: true)
             return
@@ -65,6 +69,58 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             showMainWindow()
         }
         return true
+    }
+
+    private func installInApplicationsIfNeeded() -> Bool {
+        let currentURL = Bundle.main.bundleURL.standardizedFileURL
+        let applicationsURL = URL(fileURLWithPath: "/Applications", isDirectory: true).standardizedFileURL
+        let installedURL = applicationsURL.appendingPathComponent("newnZip.app", isDirectory: true)
+
+        guard currentURL.pathExtension == "app",
+              currentURL.deletingLastPathComponent().standardizedFileURL.path != applicationsURL.path,
+              !CommandLine.arguments.contains("--newnzip-skip-install-prompt")
+        else {
+            return false
+        }
+
+        let alert = NSAlert()
+        alert.messageText = "newnZip을 Applications 폴더로 이동할까요?"
+        alert.informativeText = "앱을 Applications 폴더에 설치한 뒤 새 위치에서 다시 실행합니다."
+        alert.addButton(withTitle: "이동하고 실행")
+        alert.addButton(withTitle: "그냥 실행")
+
+        guard alert.runModal() == .alertFirstButtonReturn else {
+            return false
+        }
+
+        do {
+            try installCurrentApp(from: currentURL, to: installedURL)
+            relaunchInstalledApp(at: installedURL)
+            NSApp.terminate(nil)
+            return true
+        } catch {
+            let failure = NSAlert(error: error)
+            failure.messageText = "Applications 폴더로 이동하지 못했습니다"
+            failure.informativeText = "권한을 확인한 뒤 다시 시도하거나 앱을 직접 Applications 폴더로 옮겨주세요."
+            failure.runModal()
+            return false
+        }
+    }
+
+    private func installCurrentApp(from sourceURL: URL, to destinationURL: URL) throws {
+        let fileManager = FileManager.default
+
+        if fileManager.fileExists(atPath: destinationURL.path) {
+            try fileManager.removeItem(at: destinationURL)
+        }
+
+        try fileManager.copyItem(at: sourceURL, to: destinationURL)
+    }
+
+    private func relaunchInstalledApp(at appURL: URL) {
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.arguments = Array(CommandLine.arguments.dropFirst()) + ["--newnzip-skip-install-prompt"]
+        NSWorkspace.shared.openApplication(at: appURL, configuration: configuration)
     }
 
     private func showMainWindow() {
