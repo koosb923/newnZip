@@ -48,7 +48,7 @@ mkdir -p \
 cp "$TMP_DIR/NewnZipMac" "$APP_PATH/Contents/MacOS/NewnZipMac"
 cp "$TMP_DIR/newnzip-engine" "$APP_PATH/Contents/Frameworks/newnzip_engine/newnzip-engine"
 cp "$ROOT_DIR/mac/NewnZipMac/Sources/NewnZipMacApp/Resources/locales/"*.json "$APP_PATH/Contents/Resources/locales/"
-cp "$ROOT_DIR/assets/newnzip-app-icon.icns" "$APP_PATH/Contents/Resources/newnzip-app-icon.icns"
+cp "$ROOT_DIR/assets/newnzip-mac-app-icon.icns" "$APP_PATH/Contents/Resources/newnzip-mac-app-icon.icns"
 
 cat > "$APP_PATH/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
@@ -68,7 +68,7 @@ cat > "$APP_PATH/Contents/Info.plist" <<'PLIST'
   <key>CFBundleExecutable</key>
   <string>NewnZipMac</string>
   <key>CFBundleIconFile</key>
-  <string>newnzip-app-icon</string>
+  <string>newnzip-mac-app-icon</string>
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>LSMinimumSystemVersion</key>

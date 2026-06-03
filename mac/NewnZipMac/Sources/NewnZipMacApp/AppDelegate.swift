@@ -114,7 +114,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             try fileManager.removeItem(at: destinationURL)
         }
 
-        try fileManager.copyItem(at: sourceURL, to: destinationURL)
+        do {
+            try fileManager.moveItem(at: sourceURL, to: destinationURL)
+        } catch {
+            try fileManager.copyItem(at: sourceURL, to: destinationURL)
+            try fileManager.removeItem(at: sourceURL)
+        }
     }
 
     private func relaunchInstalledApp(at appURL: URL) {
