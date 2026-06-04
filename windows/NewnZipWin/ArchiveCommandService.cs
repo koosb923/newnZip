@@ -39,9 +39,9 @@ public static class ArchiveCommandService
     private const string ConflictPolicyRegistryName = "OutputConflictPolicy";
     private static readonly HashSet<string> ArchiveExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
-        ".zip", ".7z", ".rar", ".tar", ".tgz", ".gz", ".bz2", ".xz", ".zst", ".zstd",
-        ".lz4", ".br", ".brotli", ".cab", ".iso", ".wim", ".arj", ".lzh", ".lha",
-        ".cpio", ".rpm", ".deb", ".img", ".001"
+        ".zip", ".jar", ".7z", ".rar", ".tar", ".tgz", ".gz", ".bz2", ".xz", ".zst", ".zstd",
+        ".lz4", ".br", ".brotli", ".cab", ".iso", ".wim", ".arj", ".lzh", ".lha", ".ace",
+        ".uue", ".uu", ".z", ".cpio", ".rpm", ".deb", ".img", ".dmg", ".001"
     };
 
     public static OutputConflictPolicy ConflictPolicy

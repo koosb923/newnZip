@@ -1,5 +1,6 @@
 #include "common.h"
 #include "archive_adapter.h"
+#include "uue_reader.h"
 
 #include <fcntl.h>
 #include <sys/wait.h>
@@ -106,12 +107,18 @@ static bool is_tar_format(const char *format) {
 
 static bool is_external_archive_format(const char *format) {
     return equals_ignore_case(format, "zip") ||
+           equals_ignore_case(format, "jar") ||
            equals_ignore_case(format, "7z") ||
            equals_ignore_case(format, "wim");
 }
 
 static bool is_stream_create_format(const char *format) {
-    return equals_ignore_case(format, "zstd") ||
+    return equals_ignore_case(format, "gz") ||
+           equals_ignore_case(format, "gzip") ||
+           equals_ignore_case(format, "bz2") ||
+           equals_ignore_case(format, "bzip2") ||
+           equals_ignore_case(format, "z") ||
+           equals_ignore_case(format, "zstd") ||
            equals_ignore_case(format, "zst") ||
            equals_ignore_case(format, "lz4") ||
            equals_ignore_case(format, "brotli") ||
@@ -151,6 +158,9 @@ static StreamKind stream_kind_for_path(const char *archive_path) {
         has_suffix_ignore_case(archive_path, ".brotli")) {
         return STREAM_BROTLI;
     }
+    if (has_suffix_ignore_case(archive_path, ".z")) {
+        return STREAM_GZIP;
+    }
     return STREAM_NONE;
 }
 
@@ -175,6 +185,13 @@ static char *stream_decompressor_for_kind(StreamKind kind) {
 }
 
 static char *stream_compressor_for_format(const char *format) {
+    if (equals_ignore_case(format, "gz") || equals_ignore_case(format, "gzip") ||
+        equals_ignore_case(format, "z")) {
+        return find_tool("gzip", NULL);
+    }
+    if (equals_ignore_case(format, "bz2") || equals_ignore_case(format, "bzip2")) {
+        return find_tool("bzip2", NULL);
+    }
     if (equals_ignore_case(format, "zstd") || equals_ignore_case(format, "zst")) {
         return find_tool("zstd", NULL);
     }
@@ -208,6 +225,8 @@ static char *stream_output_name(const char *archive_path) {
         length -= 3;
     } else if (has_suffix_ignore_case(archive_path, ".brotli")) {
         length -= 7;
+    } else if (has_suffix_ignore_case(archive_path, ".z")) {
+        length -= 2;
     }
 
     if (length == 0) {
@@ -265,10 +284,19 @@ static bool is_libarchive_extract_path(const char *archive_path) {
 static bool is_sevenzip_extract_path(const char *archive_path) {
     return has_suffix_ignore_case(archive_path, ".7z") ||
            has_suffix_ignore_case(archive_path, ".rar") ||
+           has_suffix_ignore_case(archive_path, ".ace") ||
            has_suffix_ignore_case(archive_path, ".arj") ||
            has_suffix_ignore_case(archive_path, ".lzh") ||
            has_suffix_ignore_case(archive_path, ".lha") ||
            has_suffix_ignore_case(archive_path, ".zpaq");
+}
+
+static bool is_rar_extract_path(const char *archive_path) {
+    return has_suffix_ignore_case(archive_path, ".rar");
+}
+
+static bool is_dmg_extract_path(const char *archive_path) {
+    return has_suffix_ignore_case(archive_path, ".dmg");
 }
 
 static int run_process(char *const argv[]) {
@@ -290,6 +318,101 @@ static int run_process(char *const argv[]) {
         return 1;
     }
     return WEXITSTATUS(status);
+}
+
+static void run_sevenzip_create_adapter(int input_count, char **argv, const RuntimeOptions *options) {
+    char *sevenzip = find_tool("7zz", "7z");
+    if (!sevenzip) {
+        fail("ZIP/7Z 생성 backend가 없습니다. 7zz/7z를 설치하거나 NEWNZIP_BACKEND_DIR에 번들하세요");
+    }
+    size_t extra_args = (options->password && *options->password) ? 2u : 0u;
+    char **command = calloc((size_t) input_count + 6u + extra_args, sizeof(char *));
+    if (!command) {
+        free(sevenzip);
+        fail("메모리가 부족합니다");
+    }
+    command[0] = sevenzip;
+    command[1] = "a";
+    command[2] = equals_ignore_case(options->archive_format, "zip") ? "-tzip" : "-t7z";
+    int next_index = 3;
+    if (options->password && *options->password) {
+        size_t password_arg_length = strlen(options->password) + 3;
+        char *password_arg = malloc(password_arg_length);
+        if (!password_arg) {
+            free(command);
+            free(sevenzip);
+            fail("메모리가 부족합니다");
+        }
+        snprintf(password_arg, password_arg_length, "-p%s", options->password);
+        command[next_index++] = password_arg;
+        if (equals_ignore_case(options->archive_format, "7z")) {
+            command[next_index++] = "-mhe=on";
+        }
+    }
+    command[next_index++] = argv[2];
+    for (int i = 0; i < input_count; i++) {
+        command[next_index + i] = argv[3 + i];
+    }
+    command[next_index + input_count] = NULL;
+    int exit_code = run_process(command);
+    if (options->password && *options->password) {
+        free(command[3]);
+    }
+    free(command);
+    free(sevenzip);
+    if (exit_code != 0) {
+        fail("ZIP/7Z adapter 생성에 실패했습니다");
+    }
+    printf("생성 완료: %s (%s adapter)\n", argv[2], options->archive_format);
+}
+
+static void run_sevenzip_extract_adapter(const char *archive_path, const char *destination, const RuntimeOptions *options) {
+    char *sevenzip = find_tool("7zz", "7z");
+    if (!sevenzip) {
+        fail("7Z/RAR 계열 해제 backend가 없습니다. 7zz/7z를 설치하거나 NEWNZIP_BACKEND_DIR에 번들하세요");
+    }
+
+    size_t output_arg_length = strlen(destination) + 4;
+    char *output_arg = malloc(output_arg_length);
+    if (!output_arg) {
+        free(sevenzip);
+        fail("메모리가 부족합니다");
+    }
+    snprintf(output_arg, output_arg_length, "-o%s", destination);
+
+    char *command[7] = { sevenzip, "x", "-y", output_arg, (char *) archive_path, NULL, NULL };
+    if (options && options->password && *options->password) {
+        size_t password_arg_length = strlen(options->password) + 3;
+        char *password_arg = malloc(password_arg_length);
+        if (!password_arg) {
+            free(output_arg);
+            free(sevenzip);
+            fail("메모리가 부족합니다");
+        }
+        snprintf(password_arg, password_arg_length, "-p%s", options->password);
+        command[2] = password_arg;
+        command[3] = "-y";
+        command[4] = output_arg;
+        command[5] = (char *) archive_path;
+        command[6] = NULL;
+    }
+
+    int exit_code = run_process(command);
+    if (options && options->password && *options->password) {
+        free(command[2]);
+    }
+    free(output_arg);
+    free(sevenzip);
+    if (exit_code != 0) {
+        if (is_rar_extract_path(archive_path)) {
+            fail("RAR 해제에 실패했습니다. 비밀번호 오류, 손상된 파일, 또는 지원하지 않는 RAR 버전일 수 있습니다");
+        }
+        if (options && options->password && *options->password) {
+            fail("압축 해제에 실패했습니다. 비밀번호가 올바르지 않거나 지원하지 않는 방식일 수 있습니다");
+        }
+        fail("7Z 계열 해제에 실패했습니다. 손상된 파일이거나 지원하지 않는 방식일 수 있습니다");
+    }
+    printf("해제 완료: %s -> %s (7z adapter)\n", archive_path, destination);
 }
 
 static int run_process_to_file(char *const argv[], const char *output_path) {
@@ -325,6 +448,64 @@ static int run_process_to_file(char *const argv[], const char *output_path) {
     return WEXITSTATUS(status);
 }
 
+static void run_dmg_extract_adapter(const char *archive_path, const char *destination) {
+#if defined(__APPLE__)
+    char *mount_path = create_temp_path("newnzip-dmg-mount-");
+    remove_file_if_exists(mount_path);
+    if (mkdir(mount_path, 0755) != 0 && errno != EEXIST) {
+        free(mount_path);
+        fail_errno(mount_path);
+    }
+
+    char *const attach_command[] = {
+        "hdiutil",
+        "attach",
+        "-readonly",
+        "-nobrowse",
+        "-mountpoint",
+        mount_path,
+        (char *) archive_path,
+        NULL
+    };
+    int attach_code = run_process(attach_command);
+    if (attach_code != 0) {
+        remove_tree(mount_path);
+        free(mount_path);
+        fail("DMG 마운트에 실패했습니다");
+    }
+
+    char *const copy_command[] = {
+        "ditto",
+        mount_path,
+        (char *) destination,
+        NULL
+    };
+    int copy_code = run_process(copy_command);
+
+    char *const detach_command[] = {
+        "hdiutil",
+        "detach",
+        mount_path,
+        NULL
+    };
+    int detach_code = run_process(detach_command);
+    remove_tree(mount_path);
+    free(mount_path);
+
+    if (copy_code != 0) {
+        fail("DMG 내용 복사에 실패했습니다");
+    }
+    if (detach_code != 0) {
+        fail("DMG 마운트 해제에 실패했습니다");
+    }
+    printf("해제 완료: %s -> %s (dmg adapter)\n", archive_path, destination);
+#else
+    (void) archive_path;
+    (void) destination;
+    fail("DMG 해제는 현재 macOS에서만 지원합니다");
+#endif
+}
+
 bool adapter_can_create(const char *format) {
     return is_tar_format(format) ||
            is_external_archive_format(format) ||
@@ -333,7 +514,9 @@ bool adapter_can_create(const char *format) {
 
 bool adapter_can_extract(const char *archive_path) {
     return is_libarchive_extract_path(archive_path) ||
+           is_dmg_extract_path(archive_path) ||
            is_sevenzip_extract_path(archive_path) ||
+           uue_can_extract(archive_path) ||
            stream_kind_for_path(archive_path) != STREAM_NONE;
 }
 
@@ -349,48 +532,7 @@ void adapter_create(int argc, char **argv, const RuntimeOptions *options) {
     if (is_external_archive_format(options->archive_format)) {
         if (equals_ignore_case(options->archive_format, "zip") ||
             equals_ignore_case(options->archive_format, "7z")) {
-            char *sevenzip = find_tool("7zz", "7z");
-            if (!sevenzip) {
-                fail("ZIP/7Z 생성 backend가 없습니다. 7zz/7z를 설치하거나 NEWNZIP_BACKEND_DIR에 번들하세요");
-            }
-            size_t extra_args = (options->password && *options->password) ? 2u : 0u;
-            char **command = calloc((size_t) input_count + 6u + extra_args, sizeof(char *));
-            if (!command) {
-                fail("메모리가 부족합니다");
-            }
-            command[0] = sevenzip;
-            command[1] = "a";
-            command[2] = equals_ignore_case(options->archive_format, "zip") ? "-tzip" : "-t7z";
-            int next_index = 3;
-            if (options->password && *options->password) {
-                size_t password_arg_length = strlen(options->password) + 3;
-                char *password_arg = malloc(password_arg_length);
-                if (!password_arg) {
-                    free(command);
-                    free(sevenzip);
-                    fail("메모리가 부족합니다");
-                }
-                snprintf(password_arg, password_arg_length, "-p%s", options->password);
-                command[next_index++] = password_arg;
-                if (equals_ignore_case(options->archive_format, "7z")) {
-                    command[next_index++] = "-mhe=on";
-                }
-            }
-            command[next_index++] = argv[2];
-            for (int i = 0; i < input_count; i++) {
-                command[next_index + i] = argv[3 + i];
-            }
-            command[next_index + input_count] = NULL;
-            int exit_code = run_process(command);
-            if (options->password && *options->password) {
-                free(command[3]);
-            }
-            free(command);
-            free(sevenzip);
-            if (exit_code != 0) {
-                fail("ZIP/7Z adapter 생성에 실패했습니다");
-            }
-            printf("생성 완료: %s (%s adapter)\n", argv[2], options->archive_format);
+            run_sevenzip_create_adapter(input_count, argv, options);
             return;
         }
         if (equals_ignore_case(options->archive_format, "wim")) {
@@ -509,45 +651,17 @@ void adapter_extract(const char *archive_path, const char *destination, const Ru
 
     if ((options && options->password && *options->password && has_suffix_ignore_case(archive_path, ".zip")) ||
         is_sevenzip_extract_path(archive_path)) {
-        char *sevenzip = find_tool("7zz", "7z");
-        if (!sevenzip) {
-            fail("7Z/RAR 계열 해제 backend가 없습니다. 7zz/7z를 설치하거나 NEWNZIP_BACKEND_DIR에 번들하세요");
-        }
+        run_sevenzip_extract_adapter(archive_path, destination, options);
+        return;
+    }
 
-        size_t output_arg_length = strlen(destination) + 4;
-        char *output_arg = malloc(output_arg_length);
-        if (!output_arg) {
-            fail("메모리가 부족합니다");
-        }
-        snprintf(output_arg, output_arg_length, "-o%s", destination);
+    if (uue_can_extract(archive_path)) {
+        command_extract_uue(archive_path, destination, options);
+        return;
+    }
 
-        char *command[7] = { sevenzip, "x", "-y", output_arg, (char *) archive_path, NULL, NULL };
-        if (options && options->password && *options->password) {
-            size_t password_arg_length = strlen(options->password) + 3;
-            char *password_arg = malloc(password_arg_length);
-            if (!password_arg) {
-                free(output_arg);
-                free(sevenzip);
-                fail("메모리가 부족합니다");
-            }
-            snprintf(password_arg, password_arg_length, "-p%s", options->password);
-            command[2] = password_arg;
-            command[3] = "-y";
-            command[4] = output_arg;
-            command[5] = (char *) archive_path;
-            command[6] = NULL;
-        }
-
-        int exit_code = run_process(command);
-        if (options && options->password && *options->password) {
-            free(command[2]);
-        }
-        free(output_arg);
-        free(sevenzip);
-        if (exit_code != 0) {
-            fail("7Z/RAR adapter 해제에 실패했습니다");
-        }
-        printf("해제 완료: %s -> %s (7z adapter)\n", archive_path, destination);
+    if (is_dmg_extract_path(archive_path)) {
+        run_dmg_extract_adapter(archive_path, destination);
         return;
     }
 

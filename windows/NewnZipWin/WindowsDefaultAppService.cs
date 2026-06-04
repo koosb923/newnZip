@@ -12,10 +12,10 @@ public static class WindowsDefaultAppService
 
     private static readonly string[] ArchiveExtensions =
     [
-        ".zip", ".7z", ".rar", ".tar", ".tgz", ".tbz2", ".txz", ".gz", ".bz2", ".xz",
+        ".zip", ".jar", ".7z", ".rar", ".tar", ".tgz", ".tbz2", ".txz", ".gz", ".bz2", ".xz",
         ".zst", ".zstd", ".lz4", ".lz5", ".br", ".brotli", ".alz", ".egg", ".cab",
-        ".iso", ".wim", ".arj", ".lzh", ".lha", ".lzma", ".z", ".cpio", ".rpm",
-        ".deb", ".msi", ".nsis", ".asar", ".udf", ".img", ".zpaq", ".kz", ".001"
+        ".iso", ".wim", ".arj", ".lzh", ".lha", ".ace", ".uue", ".uu", ".lzma", ".z", ".cpio", ".rpm",
+        ".deb", ".msi", ".nsis", ".asar", ".udf", ".img", ".dmg", ".zpaq", ".kz", ".001"
     ];
 
     public static WindowsDefaultAppStatus GetStatus()

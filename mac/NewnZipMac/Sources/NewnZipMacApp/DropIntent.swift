@@ -8,9 +8,9 @@ enum DropIntent {
 
 enum DropResolver {
     private static let archiveExtensions = Set([
-        "zip", "7z", "rar", "tar", "tgz", "gz", "bz2", "xz", "iso", "img", "cbz",
+        "zip", "jar", "7z", "rar", "tar", "tgz", "gz", "bz2", "xz", "iso", "img", "dmg", "cbz",
         "001", "z01", "zst", "zstd", "lz4", "br", "brotli", "cab", "wim", "arj",
-        "lzh", "lha", "cpio", "rpm", "deb"
+        "lzh", "lha", "ace", "uue", "uu", "z", "cpio", "rpm", "deb"
     ])
 
     static func isArchive(_ url: URL) -> Bool {

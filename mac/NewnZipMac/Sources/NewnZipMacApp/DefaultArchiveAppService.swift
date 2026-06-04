@@ -12,6 +12,7 @@ final class DefaultArchiveAppService: ObservableObject {
     private let archiveTypes = [
         "public.zip-archive",
         "org.gnu.gnu-zip-archive",
+        "com.sun.java-archive",
         "public.tar-archive",
         "org.7-zip.7-zip-archive",
         "com.rarlab.rar-archive",
@@ -27,6 +28,9 @@ final class DefaultArchiveAppService: ObservableObject {
         "com.newntool.archive.wim",
         "com.newntool.archive.arj",
         "com.newntool.archive.lzh",
+        "com.newntool.archive.ace",
+        "com.newntool.archive.uue",
+        "com.apple.disk-image-udif",
         "com.newntool.archive.cpio",
         "com.newntool.archive.rpm",
         "com.newntool.archive.deb",

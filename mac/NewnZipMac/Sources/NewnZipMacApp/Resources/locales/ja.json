@@ -35,7 +35,7 @@
   "menu.reveal_last_output": "最後の出力を表示",
   "menu.clear_log": "ログを消去",
   "dialog.choose_archives.title": "アーカイブを選択",
-  "dialog.choose_archives.filter": "アーカイブ (*.zip *.7z *.rar *.tar *.tgz *.tar.gz *.tbz2 *.txz *.iso *.img *.cbz);;すべてのファイル (*)",
+  "dialog.choose_archives.filter": "アーカイブ (*.zip *.jar *.7z *.rar *.tar *.tgz *.tar.gz *.tbz2 *.txz *.iso *.img *.dmg *.ace *.uue *.uu *.z *.cbz);;すべてのファイル (*)",
   "dialog.choose_output.title": "出力フォルダを選択",
   "dialog.choose_create_files.title": "圧縮するファイルを選択",
   "dialog.choose_create_folder.title": "圧縮するフォルダを選択",

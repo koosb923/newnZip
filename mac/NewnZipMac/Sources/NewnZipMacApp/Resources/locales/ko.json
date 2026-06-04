@@ -35,7 +35,7 @@
   "menu.reveal_last_output": "마지막 결과 열기",
   "menu.clear_log": "로그 비우기",
   "dialog.choose_archives.title": "압축 파일 선택",
-  "dialog.choose_archives.filter": "압축 파일 (*.zip *.7z *.rar *.tar *.tgz *.tar.gz *.tbz2 *.txz *.iso *.img *.cbz);;모든 파일 (*)",
+  "dialog.choose_archives.filter": "압축 파일 (*.zip *.jar *.7z *.rar *.tar *.tgz *.tar.gz *.tbz2 *.txz *.iso *.img *.dmg *.ace *.uue *.uu *.z *.cbz);;모든 파일 (*)",
   "dialog.choose_output.title": "출력 폴더 선택",
   "dialog.choose_create_files.title": "압축할 파일 선택",
   "dialog.choose_create_folder.title": "압축할 폴더 선택",
