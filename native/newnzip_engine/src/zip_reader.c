@@ -1,4 +1,5 @@
 #include "common.h"
+#include "zip_crypto.h"
 #include "zip_reader.h"
 
 typedef struct {
@@ -9,6 +10,7 @@ typedef struct {
     pthread_mutex_t mutex;
     ProgressState *progress;
     size_t chunk_size;
+    const RuntimeOptions *options;
 } ExtractQueue;
 
 typedef struct {
@@ -165,6 +167,7 @@ static CentralList parse_central_directory(FILE *file) {
             free_central_list(&list);
             fail("invalid central directory header");
         }
+        uint16_t general_purpose_flag = read_u16(buffer + cursor + 8);
         uint16_t method = read_u16(buffer + cursor + 10);
         uint16_t mod_time = read_u16(buffer + cursor + 12);
         uint16_t mod_date = read_u16(buffer + cursor + 14);
@@ -204,7 +207,12 @@ static CentralList parse_central_directory(FILE *file) {
         entry.method = method;
         entry.mod_time = mod_time;
         entry.mod_date = mod_date;
+        entry.general_purpose_flag = general_purpose_flag;
+        entry.encrypted = (general_purpose_flag & ZIP_GENERAL_PURPOSE_ENCRYPTED) != 0;
         apply_zip64_extra(&entry, buffer + cursor + 46 + name_length, extra_length);
+        entry.payload_size = entry.encrypted && entry.compressed_size >= 12u
+            ? entry.compressed_size - 12u
+            : entry.compressed_size;
         central_list_push(&list, entry);
 
         cursor += 46 + name_length + extra_length + comment_length;
@@ -243,6 +251,36 @@ static char *read_stored_payload(FILE *archive, uint64_t size) {
     return payload;
 }
 
+static bool entry_is_encrypted(const CentralEntry *entry) {
+    return (entry->general_purpose_flag & ZIP_GENERAL_PURPOSE_ENCRYPTED) != 0;
+}
+
+static void initialize_crypto_for_entry(
+    FILE *archive,
+    const CentralEntry *entry,
+    const RuntimeOptions *options,
+    ZipCryptoState *state
+) {
+    if (!options->password || !*options->password) {
+        fail("암호가 필요한 ZIP 항목입니다");
+    }
+    if (entry->compressed_size < 12u) {
+        fail("암호 ZIP 헤더가 손상되었습니다");
+    }
+
+    unsigned char encrypted_header[12];
+    if (fread(encrypted_header, 1, sizeof(encrypted_header), archive) != sizeof(encrypted_header)) {
+        fail_errno("암호 ZIP 헤더를 읽지 못했습니다");
+    }
+    if (!zip_crypto_validate_header(options->password, entry->crc32, encrypted_header)) {
+        fail("비밀번호가 올바르지 않습니다");
+    }
+    zip_crypto_init(state, options->password);
+    for (size_t index = 0; index < sizeof(encrypted_header); index++) {
+        (void) zip_crypto_decrypt_byte(state, encrypted_header[index]);
+    }
+}
+
 static void copy_stored_bytes(FILE *archive, FILE *output, uint64_t size, unsigned char *buffer, size_t chunk_size) {
     uint64_t remaining = size;
     while (remaining > 0) {
@@ -252,6 +290,30 @@ static void copy_stored_bytes(FILE *archive, FILE *output, uint64_t size, unsign
         }
         if (fwrite(buffer, 1, chunk, output) != chunk) {
             fail_errno("failed to write extracted file");
+        }
+        remaining -= (uint64_t) chunk;
+    }
+}
+
+static void copy_stored_bytes_encrypted(
+    FILE *archive,
+    FILE *output,
+    uint64_t size,
+    unsigned char *buffer,
+    size_t chunk_size,
+    ZipCryptoState *state
+) {
+    uint64_t remaining = size;
+    while (remaining > 0) {
+        size_t chunk = remaining > chunk_size ? chunk_size : (size_t) remaining;
+        if (fread(buffer, 1, chunk, archive) != chunk) {
+            fail_errno("암호 ZIP 데이터를 읽지 못했습니다");
+        }
+        for (size_t index = 0; index < chunk; index++) {
+            buffer[index] = zip_crypto_decrypt_byte(state, buffer[index]);
+        }
+        if (fwrite(buffer, 1, chunk, output) != chunk) {
+            fail_errno("해제 파일을 기록하지 못했습니다");
         }
         remaining -= (uint64_t) chunk;
     }
@@ -300,9 +362,64 @@ static void inflate_stream_to_file(FILE *archive, FILE *output, uint64_t compres
     inflateEnd(&stream);
 }
 
+static void inflate_stream_to_file_encrypted(
+    FILE *archive,
+    FILE *output,
+    uint64_t compressed_size,
+    unsigned char *in_buffer,
+    unsigned char *out_buffer,
+    size_t chunk_size,
+    ZipCryptoState *state
+) {
+    z_stream stream;
+    memset(&stream, 0, sizeof(stream));
+    if (inflateInit2(&stream, -MAX_WBITS) != Z_OK) {
+        fail("failed to initialize inflate");
+    }
+
+    uint64_t remaining = compressed_size;
+    int finished = 0;
+    while (!finished && remaining > 0) {
+        size_t chunk = remaining > chunk_size ? chunk_size : (size_t) remaining;
+        if (fread(in_buffer, 1, chunk, archive) != chunk) {
+            inflateEnd(&stream);
+            fail_errno("암호 ZIP 데이터를 읽지 못했습니다");
+        }
+        for (size_t index = 0; index < chunk; index++) {
+            in_buffer[index] = zip_crypto_decrypt_byte(state, in_buffer[index]);
+        }
+        remaining -= (uint64_t) chunk;
+        stream.next_in = in_buffer;
+        stream.avail_in = (uInt) chunk;
+
+        while (stream.avail_in > 0 || (remaining == 0 && !finished)) {
+            stream.next_out = out_buffer;
+            stream.avail_out = (uInt) chunk_size;
+            int result = inflate(&stream, Z_NO_FLUSH);
+            if (result == Z_STREAM_END) {
+                finished = 1;
+            } else if (result != Z_OK) {
+                inflateEnd(&stream);
+                fail("failed to inflate archive entry");
+            }
+            size_t have = chunk_size - stream.avail_out;
+            if (have > 0 && fwrite(out_buffer, 1, have, output) != have) {
+                inflateEnd(&stream);
+                fail_errno("failed to write extracted file");
+            }
+            if (result == Z_STREAM_END || stream.avail_in == 0) {
+                break;
+            }
+        }
+    }
+
+    inflateEnd(&stream);
+}
+
 static void extract_entry(
     FILE *archive,
     const CentralEntry *entry,
+    const RuntimeOptions *options,
     const char *destination,
     unsigned char *input_buffer,
     unsigned char *output_buffer,
@@ -324,6 +441,15 @@ static void extract_entry(
         fail_errno("failed to seek local payload");
     }
 
+    ZipCryptoState crypto_state;
+    ZipCryptoState *crypto_state_ptr = NULL;
+    uint64_t payload_size = entry->compressed_size;
+    if (entry_is_encrypted(entry)) {
+        initialize_crypto_for_entry(archive, entry, options, &crypto_state);
+        crypto_state_ptr = &crypto_state;
+        payload_size -= 12u;
+    }
+
     char *target_path = join_path(destination, entry->name);
     ensure_parent_directories(target_path);
 
@@ -341,7 +467,15 @@ static void extract_entry(
             free(target_path);
             fail("unsupported symlink compression method");
         }
-        char *link_target = read_stored_payload(archive, entry->compressed_size);
+        char *link_target = NULL;
+        if (entry_is_encrypted(entry)) {
+            link_target = read_stored_payload(archive, payload_size);
+            for (uint64_t index = 0; index < payload_size; index++) {
+                link_target[index] = (char) zip_crypto_decrypt_byte(crypto_state_ptr, (unsigned char) link_target[index]);
+            }
+        } else {
+            link_target = read_stored_payload(archive, payload_size);
+        }
         if (unlink(target_path) != 0 && errno != ENOENT) {
             free(link_target);
             free(target_path);
@@ -364,9 +498,17 @@ static void extract_entry(
     }
 
     if (entry->method == ZIP_METHOD_STORE) {
-        copy_stored_bytes(archive, output, entry->compressed_size, input_buffer, chunk_size);
+        if (entry_is_encrypted(entry)) {
+            copy_stored_bytes_encrypted(archive, output, payload_size, input_buffer, chunk_size, crypto_state_ptr);
+        } else {
+            copy_stored_bytes(archive, output, payload_size, input_buffer, chunk_size);
+        }
     } else if (entry->method == ZIP_METHOD_DEFLATE) {
-        inflate_stream_to_file(archive, output, entry->compressed_size, input_buffer, output_buffer, chunk_size);
+        if (entry_is_encrypted(entry)) {
+            inflate_stream_to_file_encrypted(archive, output, payload_size, input_buffer, output_buffer, chunk_size, crypto_state_ptr);
+        } else {
+            inflate_stream_to_file(archive, output, payload_size, input_buffer, output_buffer, chunk_size);
+        }
     } else {
         fclose(output);
         free(target_path);
@@ -409,6 +551,7 @@ static void *extract_worker_main(void *raw_queue) {
         extract_entry(
             archive,
             &queue->entries->items[index],
+            queue->options,
             queue->destination,
             input_buffer,
             output_buffer,
@@ -480,6 +623,7 @@ void command_extract(const char *archive_path, const char *destination, const Ru
     queue.entries = &entries;
     queue.next_index = 0;
     queue.chunk_size = tuned_options.chunk_size;
+    queue.options = options;
     ProgressState progress;
     progress_state_init(&progress, entries.count);
     queue.progress = &progress;

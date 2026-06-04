@@ -1,4 +1,5 @@
 #include "common.h"
+#include "zip_crypto.h"
 #include "zip_writer.h"
 
 typedef struct {
@@ -98,12 +99,15 @@ static CentralEntry store_source_to_payload(
     entry.name = normalized_name;
     entry.crc32 = crc32(0L, Z_NULL, 0);
     entry.compressed_size = 0;
+    entry.payload_size = 0;
     entry.uncompressed_size = 0;
     entry.local_header_offset = 0;
     entry.external_attributes = ((uint32_t) (source->mode & 0xffffu)) << 16;
     entry.method = ZIP_METHOD_STORE;
     entry.mod_time = dos_time_value(file_stat.st_mtime);
     entry.mod_date = dos_date_value(file_stat.st_mtime);
+    entry.general_purpose_flag = ZIP_GENERAL_PURPOSE_UTF8;
+    entry.encrypted = false;
 
     if (source->is_symlink) {
         size_t target_length = strlen(source->link_target);
@@ -116,6 +120,7 @@ static CentralEntry store_source_to_payload(
         }
         entry.crc32 = crc32(entry.crc32, payload, (uInt) target_length);
         entry.compressed_size = (uint64_t) target_length;
+        entry.payload_size = (uint64_t) target_length;
         entry.uncompressed_size = (uint64_t) target_length;
         *memory_payload = payload;
         *memory_payload_size = (uint64_t) target_length;
@@ -144,6 +149,7 @@ static CentralEntry store_source_to_payload(
         if (read_size > 0) {
             entry.crc32 = crc32(entry.crc32, scratch->read_buffer, (uInt) read_size);
             entry.compressed_size += (uint64_t) read_size;
+            entry.payload_size += (uint64_t) read_size;
             entry.uncompressed_size += (uint64_t) read_size;
             if (use_memory_payload) {
                 memory_buffer_append(&memory_output, scratch->read_buffer, read_size);
@@ -206,12 +212,15 @@ static CentralEntry compress_source_to_payload(
     entry.name = normalized_name;
     entry.crc32 = crc32(0L, Z_NULL, 0);
     entry.compressed_size = 0;
+    entry.payload_size = 0;
     entry.uncompressed_size = 0;
     entry.local_header_offset = 0;
     entry.external_attributes = ((uint32_t) (source->mode & 0xffffu)) << 16;
     entry.method = ZIP_METHOD_DEFLATE;
     entry.mod_time = dos_time_value(file_stat.st_mtime);
     entry.mod_date = dos_date_value(file_stat.st_mtime);
+    entry.general_purpose_flag = ZIP_GENERAL_PURPOSE_UTF8;
+    entry.encrypted = false;
 
     FILE *input = fopen(source->path, "rb");
     if (!input) {
@@ -295,6 +304,7 @@ static CentralEntry compress_source_to_payload(
                 }
             }
             entry.compressed_size += (uint64_t) have;
+            entry.payload_size += (uint64_t) have;
         } while (stream.avail_out == 0);
     } while (flush != Z_FINISH);
 
@@ -464,7 +474,7 @@ static void write_local_header(FILE *output, const CentralEntry *entry) {
     bool use_zip64 = entry_needs_zip64(entry);
     write_u32(output, ZIP_LOCAL_FILE_HEADER);
     write_u16(output, use_zip64 ? ZIP64_VERSION : ZIP_VERSION);
-    write_u16(output, ZIP_GENERAL_PURPOSE_UTF8);
+    write_u16(output, entry->general_purpose_flag);
     write_u16(output, entry->method);
     write_u16(output, entry->mod_time);
     write_u16(output, entry->mod_date);
@@ -517,6 +527,65 @@ static void copy_file_contents(FILE *output, const char *temp_path, uint64_t *wr
     *written_size = total;
 }
 
+static void copy_encrypted_file_contents(
+    FILE *output,
+    const char *temp_path,
+    uint64_t *written_size,
+    size_t chunk_size,
+    const char *password,
+    uint32_t crc32_value
+) {
+    FILE *input = fopen(temp_path, "rb");
+    if (!input) {
+        fail_errno(temp_path);
+    }
+
+    unsigned char *buffer = malloc(chunk_size);
+    if (!buffer) {
+        fclose(input);
+        fail("메모리가 부족합니다");
+    }
+
+    ZipCryptoState state;
+    zip_crypto_init(&state, password);
+
+    unsigned char header[12];
+    zip_crypto_generate_header_with_state(&state, crc32_value, header);
+    if (fwrite(header, 1, sizeof(header), output) != sizeof(header)) {
+        free(buffer);
+        fclose(input);
+        fail_errno("암호 ZIP 헤더를 기록하지 못했습니다");
+    }
+
+    uint64_t total = sizeof(header);
+    while (1) {
+        size_t read_size = fread(buffer, 1, chunk_size, input);
+        if (read_size > 0) {
+            for (size_t index = 0; index < read_size; index++) {
+                buffer[index] = zip_crypto_encrypt_byte(&state, buffer[index]);
+            }
+            if (fwrite(buffer, 1, read_size, output) != read_size) {
+                free(buffer);
+                fclose(input);
+                fail_errno("암호 ZIP 데이터를 기록하지 못했습니다");
+            }
+            total += (uint64_t) read_size;
+        }
+        if (read_size < chunk_size) {
+            if (ferror(input)) {
+                free(buffer);
+                fclose(input);
+                fail_errno("임시 압축 파일을 읽지 못했습니다");
+            }
+            break;
+        }
+    }
+
+    free(buffer);
+    fclose(input);
+    *written_size = total;
+}
+
 static void copy_memory_contents(FILE *output, const unsigned char *payload, uint64_t payload_size, uint64_t *written_size) {
     if (payload_size > SIZE_MAX) {
         fail("메모리 압축 결과가 너무 큽니다");
@@ -526,6 +595,42 @@ static void copy_memory_contents(FILE *output, const unsigned char *payload, uin
         fail_errno("메모리 압축 결과를 아카이브에 쓰지 못했습니다");
     }
     *written_size = payload_size;
+}
+
+static void copy_encrypted_memory_contents(
+    FILE *output,
+    const unsigned char *payload,
+    uint64_t payload_size,
+    uint64_t *written_size,
+    const char *password,
+    uint32_t crc32_value
+) {
+    ZipCryptoState state;
+    zip_crypto_init(&state, password);
+
+    unsigned char header[12];
+    zip_crypto_generate_header_with_state(&state, crc32_value, header);
+    if (fwrite(header, 1, sizeof(header), output) != sizeof(header)) {
+        fail_errno("암호 ZIP 헤더를 기록하지 못했습니다");
+    }
+
+    if (payload_size > SIZE_MAX) {
+        fail("메모리 압축 결과가 너무 큽니다");
+    }
+    size_t size = (size_t) payload_size;
+    unsigned char *encrypted = malloc(size == 0 ? 1 : size);
+    if (!encrypted) {
+        fail("메모리가 부족합니다");
+    }
+    for (size_t index = 0; index < size; index++) {
+        encrypted[index] = zip_crypto_encrypt_byte(&state, payload[index]);
+    }
+    if (size > 0 && fwrite(encrypted, 1, size, output) != size) {
+        free(encrypted);
+        fail_errno("암호 ZIP 데이터를 기록하지 못했습니다");
+    }
+    free(encrypted);
+    *written_size = payload_size + sizeof(header);
 }
 
 static void split_file(const char *source_path, const char *destination_base, uint64_t split_size, size_t chunk_size) {
@@ -637,7 +742,7 @@ static void write_central_directory(FILE *output, const CentralList *entries) {
         write_u32(output, ZIP_CENTRAL_DIRECTORY_HEADER);
         write_u16(output, (uint16_t) ((3u << 8) | (entry_zip64 ? ZIP64_VERSION : ZIP_VERSION)));
         write_u16(output, entry_zip64 ? ZIP64_VERSION : ZIP_VERSION);
-        write_u16(output, ZIP_GENERAL_PURPOSE_UTF8);
+        write_u16(output, entry->general_purpose_flag);
         write_u16(output, entry->method);
         write_u16(output, entry->mod_time);
         write_u16(output, entry->mod_date);
@@ -746,6 +851,12 @@ void command_create(int argc, char **argv, const RuntimeOptions *options) {
         }
         pthread_mutex_unlock(&results[i].mutex);
 
+        if (options->password && *options->password) {
+            results[i].entry.encrypted = true;
+            results[i].entry.general_purpose_flag |= ZIP_GENERAL_PURPOSE_ENCRYPTED;
+            results[i].entry.compressed_size = results[i].entry.payload_size + 12u;
+        }
+
         long offset = ftell(output);
         if (offset < 0) {
             fail_errno("출력 오프셋을 계산하지 못했습니다");
@@ -755,9 +866,31 @@ void command_create(int argc, char **argv, const RuntimeOptions *options) {
 
         uint64_t written_size = 0;
         if (results[i].temp_path) {
-            copy_file_contents(output, results[i].temp_path, &written_size, tuned_options.chunk_size);
+            if (results[i].entry.encrypted) {
+                copy_encrypted_file_contents(
+                    output,
+                    results[i].temp_path,
+                    &written_size,
+                    tuned_options.chunk_size,
+                    options->password,
+                    results[i].entry.crc32
+                );
+            } else {
+                copy_file_contents(output, results[i].temp_path, &written_size, tuned_options.chunk_size);
+            }
         } else {
-            copy_memory_contents(output, results[i].memory_payload, results[i].memory_payload_size, &written_size);
+            if (results[i].entry.encrypted) {
+                copy_encrypted_memory_contents(
+                    output,
+                    results[i].memory_payload,
+                    results[i].memory_payload_size,
+                    &written_size,
+                    options->password,
+                    results[i].entry.crc32
+                );
+            } else {
+                copy_memory_contents(output, results[i].memory_payload, results[i].memory_payload_size, &written_size);
+            }
         }
         if (written_size != results[i].entry.compressed_size) {
             fail("임시 압축 데이터 크기가 메타데이터와 다릅니다");

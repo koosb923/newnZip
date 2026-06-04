@@ -18,6 +18,7 @@
 #include <zlib.h>
 
 #define ZIP_GENERAL_PURPOSE_UTF8 0x0800u
+#define ZIP_GENERAL_PURPOSE_ENCRYPTED 0x0001u
 #define ZIP_LOCAL_FILE_HEADER 0x04034b50u
 #define ZIP_CENTRAL_DIRECTORY_HEADER 0x02014b50u
 #define ZIP_END_OF_CENTRAL_DIRECTORY 0x06054b50u
@@ -43,12 +44,15 @@ typedef struct {
     char *name;
     uint32_t crc32;
     uint64_t compressed_size;
+    uint64_t payload_size;
     uint64_t uncompressed_size;
     uint64_t local_header_offset;
     uint32_t external_attributes;
     uint16_t method;
     uint16_t mod_time;
     uint16_t mod_date;
+    uint16_t general_purpose_flag;
+    bool encrypted;
 } CentralEntry;
 
 typedef struct {

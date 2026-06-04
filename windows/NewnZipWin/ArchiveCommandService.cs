@@ -250,6 +250,7 @@ public static class ArchiveCommandService
         {
             var archiveToExtract = archive;
             var temporaryJoinedArchive = string.Empty;
+            var temporaryExtractDirectory = string.Empty;
 
             if (IsSplitArchiveStart(archive))
             {
@@ -261,6 +262,8 @@ public static class ArchiveCommandService
             var parent = Path.GetDirectoryName(archive) ?? Environment.CurrentDirectory;
             var destination = Path.Combine(parent, ExtractionDirectoryName(archive));
             destination = ResolveOutputPath(destination, isSplitOutput: false, ConflictPolicy);
+            temporaryExtractDirectory = Path.Combine(Path.GetTempPath(), $"newnzip-extract-{Guid.NewGuid():N}");
+            Directory.CreateDirectory(temporaryExtractDirectory);
             var archivePassword = string.IsNullOrWhiteSpace(password) ? AppPreferences.ArchivePassword.Trim() : password.Trim();
             var extractArguments = new List<string> { "extract" };
             if (!string.IsNullOrEmpty(archivePassword))
@@ -268,11 +271,16 @@ public static class ArchiveCommandService
                 extractArguments.Add($"--password={archivePassword}");
             }
             extractArguments.Add(archiveToExtract);
-            extractArguments.Add(destination);
+            extractArguments.Add(temporaryExtractDirectory);
             exitCode = Math.Max(exitCode, Run(engine, extractArguments, onLine, cancellationToken));
             if (exitCode == 0)
             {
+                MoveExtractedDirectory(temporaryExtractDirectory, destination);
                 destinations.Add(destination);
+            }
+            else if (Directory.Exists(temporaryExtractDirectory))
+            {
+                Directory.Delete(temporaryExtractDirectory, recursive: true);
             }
 
             if (!string.IsNullOrEmpty(temporaryJoinedArchive))
@@ -284,6 +292,27 @@ public static class ArchiveCommandService
         return exitCode == 0
             ? new ArchiveCommandResult(true, "압축 해제가 완료되었습니다.", destinations.ToArray())
             : new ArchiveCommandResult(false, $"압축 해제 실패: exit code {exitCode}");
+    }
+
+    private static void MoveExtractedDirectory(string sourceDirectory, string destinationDirectory)
+    {
+        Directory.CreateDirectory(destinationDirectory);
+
+        foreach (var directory in Directory.GetDirectories(sourceDirectory, "*", SearchOption.AllDirectories))
+        {
+            var relativePath = Path.GetRelativePath(sourceDirectory, directory);
+            Directory.CreateDirectory(Path.Combine(destinationDirectory, relativePath));
+        }
+
+        foreach (var file in Directory.GetFiles(sourceDirectory, "*", SearchOption.AllDirectories))
+        {
+            var relativePath = Path.GetRelativePath(sourceDirectory, file);
+            var destinationFile = Path.Combine(destinationDirectory, relativePath);
+            Directory.CreateDirectory(Path.GetDirectoryName(destinationFile)!);
+            File.Move(file, destinationFile);
+        }
+
+        Directory.Delete(sourceDirectory, recursive: true);
     }
 
     private static string ResolveOutputPath(string requestedPath, bool isSplitOutput, OutputConflictPolicy policy)

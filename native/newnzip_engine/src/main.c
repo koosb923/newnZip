@@ -114,11 +114,6 @@ int main(int argc, char **argv) {
             strcmp(options.archive_format, "7z") != 0) {
             fail("암호 압축은 현재 zip 또는 7z 형식만 지원합니다");
         }
-        if (options.password && *options.password && strcmp(options.archive_format, "zip") == 0) {
-            adapter_create(command_argc, command_argv, &options);
-            free(command_argv);
-            return 0;
-        }
         if (strcmp(options.archive_format, "zip") != 0) {
             adapter_create(command_argc, command_argv, &options);
             free(command_argv);
@@ -136,7 +131,8 @@ int main(int argc, char **argv) {
         size_t archive_length = strlen(archive_path);
         if (archive_length > 4 && strcmp(archive_path + archive_length - 4, ".001") == 0) {
             command_extract_split(archive_path, command_argv[3], &options);
-        } else if (options.password && *options.password) {
+        } else if (options.password && *options.password &&
+                   strcmp(strrchr(archive_path, '.') ? strrchr(archive_path, '.') + 1 : "", "zip") != 0) {
             adapter_extract(command_argv[2], command_argv[3], &options);
         } else if (adapter_can_extract(archive_path)) {
             adapter_extract(command_argv[2], command_argv[3], &options);
