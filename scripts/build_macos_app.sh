@@ -14,6 +14,8 @@ NOTARY_TEAM_ID="${NEWNZIP_NOTARY_TEAM_ID:-}"
 NOTARY_KEY_PATH="${NEWNZIP_NOTARY_KEY_PATH:-}"
 NOTARY_KEY_ID="${NEWNZIP_NOTARY_KEY_ID:-}"
 NOTARY_ISSUER="${NEWNZIP_NOTARY_ISSUER:-}"
+ENGINE_CFLAGS=()
+ENGINE_LDFLAGS=()
 
 detect_sign_identity() {
   if [ -n "$SIGN_IDENTITY" ]; then
@@ -93,8 +95,27 @@ notarize_app() {
   xcrun stapler staple "$APP_PATH"
 }
 
+append_pkg_config_flags() {
+  local package_name="$1"
+  local define_name="$2"
+
+  if pkg-config --exists "$package_name" 2>/dev/null; then
+    ENGINE_CFLAGS+=("-D${define_name}=1")
+    while IFS= read -r flag; do
+      [ -n "$flag" ] && ENGINE_CFLAGS+=("$flag")
+    done < <(pkg-config --cflags "$package_name" 2>/dev/null | tr ' ' '\n')
+    while IFS= read -r flag; do
+      [ -n "$flag" ] && ENGINE_LDFLAGS+=("$flag")
+    done < <(pkg-config --libs "$package_name" 2>/dev/null | tr ' ' '\n')
+  fi
+}
+
 rm -rf "$TMP_DIR"
 mkdir -p "$TMP_DIR"
+
+append_pkg_config_flags "bzip2" "NEWNZIP_HAS_BZIP2"
+append_pkg_config_flags "liblzma" "NEWNZIP_HAS_LZMA"
+append_pkg_config_flags "libzstd" "NEWNZIP_HAS_ZSTD"
 
 clang -std=c11 -O2 -Wall -Wextra -pedantic \
   -arch arm64 -arch x86_64 -mmacosx-version-min=10.13 \
@@ -105,10 +126,18 @@ clang -std=c11 -O2 -Wall -Wextra -pedantic \
   "$ROOT_DIR/native/newnzip_engine/src/progress.c" \
   "$ROOT_DIR/native/newnzip_engine/src/zip_writer.c" \
   "$ROOT_DIR/native/newnzip_engine/src/zip_reader.c" \
+  "$ROOT_DIR/native/newnzip_engine/src/zip_crypto.c" \
+  "$ROOT_DIR/native/newnzip_engine/src/zip_aes.c" \
+  "$ROOT_DIR/native/newnzip_engine/src/tar_writer.c" \
+  "$ROOT_DIR/native/newnzip_engine/src/tar_reader.c" \
+  "$ROOT_DIR/native/newnzip_engine/src/sevenzip_reader.c" \
+  "$ROOT_DIR/native/newnzip_engine/src/uue_reader.c" \
   "$ROOT_DIR/native/newnzip_engine/src/benchmark.c" \
   "$ROOT_DIR/native/newnzip_engine/src/capabilities.c" \
   "$ROOT_DIR/native/newnzip_engine/src/archive_adapter.c" \
-  -lz -lpthread -framework CoreFoundation
+  "${ENGINE_CFLAGS[@]}" \
+  -lz -lpthread -framework CoreFoundation \
+  "${ENGINE_LDFLAGS[@]}"
 
 env SDKROOT="$SDK_PATH" CLANG_MODULE_CACHE_PATH="$TMP_DIR/clang-arm64" \
   swift build -c release --triple arm64-apple-macosx14.0 \
@@ -183,6 +212,7 @@ cat > "$APP_PATH/Contents/Info.plist" <<'PLIST'
       <array>
         <string>public.zip-archive</string>
         <string>org.gnu.gnu-zip-archive</string>
+        <string>com.sun.java-archive</string>
         <string>public.tar-archive</string>
         <string>org.7-zip.7-zip-archive</string>
         <string>com.rarlab.rar-archive</string>
@@ -198,6 +228,9 @@ cat > "$APP_PATH/Contents/Info.plist" <<'PLIST'
         <string>com.newntool.archive.wim</string>
         <string>com.newntool.archive.arj</string>
         <string>com.newntool.archive.lzh</string>
+        <string>com.newntool.archive.ace</string>
+        <string>com.newntool.archive.uue</string>
+        <string>com.apple.disk-image-udif</string>
         <string>com.newntool.archive.cpio</string>
         <string>com.newntool.archive.rpm</string>
         <string>com.newntool.archive.deb</string>
@@ -206,6 +239,7 @@ cat > "$APP_PATH/Contents/Info.plist" <<'PLIST'
       <key>CFBundleTypeExtensions</key>
       <array>
         <string>zip</string>
+        <string>jar</string>
         <string>7z</string>
         <string>rar</string>
         <string>tar</string>
@@ -224,10 +258,15 @@ cat > "$APP_PATH/Contents/Info.plist" <<'PLIST'
         <string>arj</string>
         <string>lzh</string>
         <string>lha</string>
+        <string>ace</string>
+        <string>uue</string>
+        <string>uu</string>
+        <string>z</string>
         <string>cpio</string>
         <string>rpm</string>
         <string>deb</string>
         <string>img</string>
+        <string>dmg</string>
         <string>001</string>
       </array>
     </dict>

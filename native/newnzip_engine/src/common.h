@@ -18,17 +18,27 @@
 #include <zlib.h>
 
 #define ZIP_GENERAL_PURPOSE_UTF8 0x0800u
+#define ZIP_GENERAL_PURPOSE_ENCRYPTED 0x0001u
 #define ZIP_LOCAL_FILE_HEADER 0x04034b50u
 #define ZIP_CENTRAL_DIRECTORY_HEADER 0x02014b50u
 #define ZIP_END_OF_CENTRAL_DIRECTORY 0x06054b50u
 #define ZIP64_END_OF_CENTRAL_DIRECTORY 0x06064b50u
 #define ZIP64_END_OF_CENTRAL_DIRECTORY_LOCATOR 0x07064b50u
 #define ZIP64_EXTRA_FIELD_ID 0x0001u
+#define ZIP_AES_EXTRA_FIELD_ID 0x9901u
 #define ZIP_VERSION 20u
 #define ZIP64_VERSION 45u
+#define ZIP_AES_VERSION 51u
 #define ZIP_METHOD_STORE 0u
 #define ZIP_METHOD_DEFLATE 8u
+#define ZIP_METHOD_AES 99u
 #define CHUNK_SIZE 65536u
+
+typedef enum {
+    ZIP_ENCRYPTION_NONE = 0,
+    ZIP_ENCRYPTION_ZIPCRYPTO = 1,
+    ZIP_ENCRYPTION_AES256 = 2
+} ZipEncryptionMode;
 
 typedef struct {
     char *path;
@@ -43,12 +53,18 @@ typedef struct {
     char *name;
     uint32_t crc32;
     uint64_t compressed_size;
+    uint64_t payload_size;
     uint64_t uncompressed_size;
     uint64_t local_header_offset;
     uint32_t external_attributes;
     uint16_t method;
+    uint16_t actual_method;
     uint16_t mod_time;
     uint16_t mod_date;
+    uint16_t general_purpose_flag;
+    bool encrypted;
+    ZipEncryptionMode encryption_mode;
+    uint8_t aes_strength;
 } CentralEntry;
 
 typedef struct {
@@ -66,6 +82,7 @@ typedef struct {
     uint64_t split_size;
     const char *archive_format;
     const char *zip_method;
+    const char *zip_encryption_mode;
     const char *performance_mode;
     const char *password;
 } RuntimeOptions;

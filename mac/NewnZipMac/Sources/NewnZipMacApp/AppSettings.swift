@@ -2,6 +2,7 @@ import Foundation
 
 enum ArchiveFormat: String, CaseIterable, Identifiable {
     case zip = "zip"
+    case jar = "jar"
     case sevenZip = "7z"
     case tar = "tar"
     case tarGz = "tar.gz"

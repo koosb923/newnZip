@@ -35,7 +35,7 @@
   "menu.reveal_last_output": "Reveal Last Output",
   "menu.clear_log": "Clear Log",
   "dialog.choose_archives.title": "Choose Archives",
-  "dialog.choose_archives.filter": "Archives (*.zip *.7z *.rar *.tar *.tgz *.tar.gz *.tbz2 *.txz *.iso *.img *.cbz);;All Files (*)",
+  "dialog.choose_archives.filter": "Archives (*.zip *.jar *.7z *.rar *.tar *.tgz *.tar.gz *.tbz2 *.txz *.iso *.img *.dmg *.ace *.uue *.uu *.z *.cbz);;All Files (*)",
   "dialog.choose_output.title": "Choose Output Folder",
   "dialog.choose_create_files.title": "Choose Files to Archive",
   "dialog.choose_create_folder.title": "Choose Folder to Archive",
