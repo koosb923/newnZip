@@ -62,6 +62,8 @@ struct EngineBridge {
         let archiveName = urls.count == 1 ? first.deletingPathExtension().lastPathComponent : "newnzip-bundle"
         let requestedOutput = first.deletingLastPathComponent().appendingPathComponent("\(archiveName).\(format.rawValue)")
         let output = resolvedOutputURL(for: requestedOutput, splitSizeMB: splitSizeMB, conflictPolicy: conflictPolicy)
+        let joinedPaths = urls.map { $0.path }.joined(separator: " | ")
+        NewnZipDebugLog.write("EngineBridge.compress format=\(format.rawValue) output=\(output.path) inputs=\(joinedPaths)")
 
         guard let engineURL else {
             let summary = "newnzip-engine을 찾지 못했습니다."
@@ -101,20 +103,32 @@ struct EngineBridge {
         }
         let requestedOutput = first.deletingLastPathComponent().appendingPathComponent(extractionDirectoryName(for: first))
         let output = resolvedExtractionOutputURL(for: requestedOutput, conflictPolicy: conflictPolicy)
+        let temporaryOutput = FileManager.default.temporaryDirectory
+            .appendingPathComponent("newnzip-extract-\(UUID().uuidString)", isDirectory: true)
+        NewnZipDebugLog.write("EngineBridge.extract output=\(output.path) input=\(first.path)")
 
-        if let engineURL {
-            var args = ["extract"]
-            if let password, !password.isEmpty {
-                args.append("--password=\(password)")
+        do {
+            try FileManager.default.createDirectory(at: temporaryOutput, withIntermediateDirectories: true)
+
+            if let engineURL {
+                var args = ["extract"]
+                if let password, !password.isEmpty {
+                    args.append("--password=\(password)")
+                }
+                args.append(first.path)
+                args.append(temporaryOutput.path)
+                let result = try await run(executable: engineURL, arguments: args, onLine: onLine)
+                try FileManager.default.moveItem(at: temporaryOutput, to: output)
+                return result
             }
-            args.append(first.path)
-            args.append(output.path)
-            return try await run(executable: engineURL, arguments: args, onLine: onLine)
-        }
 
-        let summary = "newnzip-engine을 찾지 못했습니다."
-        onLine(summary)
-        return EngineResult(summary: summary, logLines: [summary])
+            let summary = "newnzip-engine을 찾지 못했습니다."
+            onLine(summary)
+            return EngineResult(summary: summary, logLines: [summary])
+        } catch {
+            try? FileManager.default.removeItem(at: temporaryOutput)
+            throw error
+        }
     }
 
     private static func extractionDirectoryName(for url: URL) -> String {
@@ -271,11 +285,23 @@ struct EngineBridge {
                 let process = Process()
                 process.executableURL = executable
                 process.arguments = arguments
+                NewnZipDebugLog.write("EngineBridge.run executable=\(executable.path) args=\(arguments.joined(separator: " "))")
+                var environment = ProcessInfo.processInfo.environment
                 if let backendDirectoryURL {
-                    var environment = ProcessInfo.processInfo.environment
                     environment["NEWNZIP_BACKEND_DIR"] = backendDirectoryURL.path
-                    process.environment = environment
+                    NewnZipDebugLog.write("EngineBridge.run backendDir=\(backendDirectoryURL.path)")
                 }
+                let pathSegments = [
+                    backendDirectoryURL?.path,
+                    "/opt/homebrew/bin",
+                    "/usr/local/bin",
+                    "/usr/bin",
+                    "/bin",
+                    "/usr/sbin",
+                    "/sbin"
+                ].compactMap { $0 }
+                environment["PATH"] = pathSegments.joined(separator: ":")
+                process.environment = environment
                 processBox.process = process
 
                 let output = Pipe()
@@ -302,6 +328,7 @@ struct EngineBridge {
 
                     let lines = collector.lines
                     let summary = lines.last(where: { LogParser.parseProgressLine($0) == nil && !$0.isEmpty }) ?? ""
+                    NewnZipDebugLog.write("EngineBridge.run exit=\(finishedProcess.terminationStatus) summary=\(summary)")
 
                     if finishedProcess.terminationStatus == 0 {
                         continuation.resume(returning: EngineResult(summary: summary, logLines: lines))

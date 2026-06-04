@@ -39,6 +39,23 @@ sign_target() {
   fi
 }
 
+copy_optional_backend() {
+  local destination_dir="$1"
+  local backend_name="$2"
+  shift 2
+
+  local candidate
+  for candidate in "$@"; do
+    if [ -x "$candidate" ]; then
+      cp "$candidate" "$destination_dir/$backend_name"
+      chmod +x "$destination_dir/$backend_name"
+      return 0
+    fi
+  done
+
+  return 1
+}
+
 notarize_app() {
   local archive_path="$TMP_DIR/newnZip-notarize.zip"
   local -a notary_args
@@ -119,6 +136,16 @@ cp "$TMP_DIR/NewnZipMac" "$APP_PATH/Contents/MacOS/NewnZipMac"
 cp "$TMP_DIR/newnzip-engine" "$APP_PATH/Contents/Frameworks/newnzip_engine/newnzip-engine"
 cp "$ROOT_DIR/mac/NewnZipMac/Sources/NewnZipMacApp/Resources/locales/"*.json "$APP_PATH/Contents/Resources/locales/"
 cp "$ROOT_DIR/assets/newnzip-mac-app-icon.icns" "$APP_PATH/Contents/Resources/newnzip-mac-app-icon.icns"
+
+copy_optional_backend \
+  "$APP_PATH/Contents/Frameworks/newnzip_engine/backends" \
+  "7zz" \
+  /opt/homebrew/bin/7zz \
+  /usr/local/bin/7zz \
+  /opt/homebrew/bin/7z \
+  /usr/local/bin/7z \
+  /usr/bin/7zz \
+  /usr/bin/7z || true
 
 cat > "$APP_PATH/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
@@ -547,6 +574,9 @@ PLIST
 
 detect_sign_identity
 sign_target "$APP_PATH/Contents/Frameworks/newnzip_engine/newnzip-engine"
+if [ -x "$APP_PATH/Contents/Frameworks/newnzip_engine/backends/7zz" ]; then
+  sign_target "$APP_PATH/Contents/Frameworks/newnzip_engine/backends/7zz"
+fi
 sign_target "$APP_PATH/Contents/MacOS/NewnZipMac"
 if [ -n "$SIGN_IDENTITY" ]; then
   codesign --force --timestamp --options runtime --sign "$SIGN_IDENTITY" "$APP_PATH"

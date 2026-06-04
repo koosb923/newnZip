@@ -85,7 +85,6 @@ final class FinderIntegrationService: ObservableObject {
             .appendingPathComponent("Library/Services", isDirectory: true)
         try FileManager.default.createDirectory(at: servicesDirectory, withIntermediateDirectories: true)
 
-        let appPath = Bundle.main.bundleURL.path
         let compressWorkflow = servicesDirectory.appendingPathComponent("newnZip으로 압축하기.workflow", isDirectory: true)
         let extractWorkflow = servicesDirectory.appendingPathComponent("newnZip으로 압축 풀기.workflow", isDirectory: true)
 
@@ -93,13 +92,13 @@ final class FinderIntegrationService: ObservableObject {
             at: compressWorkflow,
             name: "newnZip으로 압축하기",
             workflowID: "compress",
-            command: commandString(appPath: appPath, mode: .compress)
+            command: commandString(mode: .compress)
         )
         try writeWorkflow(
             at: extractWorkflow,
             name: "newnZip으로 압축 풀기",
             workflowID: "extract",
-            command: commandString(appPath: appPath, mode: .extract)
+            command: commandString(mode: .extract)
         )
     }
 
@@ -224,8 +223,7 @@ final class FinderIntegrationService: ObservableObject {
         try data.write(to: url)
     }
 
-    private func commandString(appPath: String, mode: WorkflowMode) -> String {
-        let quotedAppPath = shellQuoted(appPath)
+    private func commandString(mode: WorkflowMode) -> String {
         let modeName = mode == .compress ? "compress" : "extract"
         let hudArgument = mode == .compress ? "--hud-compress" : "--hud-extract"
         return """
@@ -239,7 +237,22 @@ final class FinderIntegrationService: ObservableObject {
           set -- "${ITEMS[@]}"
           echo "$(date '+%F %T') \(modeName) stdin argc=$#" >> "$LOG"
         fi
-        APP_PATH=\(quotedAppPath)
+        APP_PATH=""
+        for candidate in "/Applications/newnZip.app" "$HOME/Applications/newnZip.app"; do
+          if [ -d "$candidate" ]; then
+            APP_PATH="$candidate"
+            break
+          fi
+        done
+        if [ -z "$APP_PATH" ]; then
+          APP_PATH="$(mdfind "kMDItemCFBundleIdentifier == 'com.newntool.newnzip'" | head -n 1)"
+        fi
+        if [ -z "$APP_PATH" ]; then
+          echo "$(date '+%F %T') missing app bundle" >> "$LOG"
+          osascript -e 'display alert "newnZip 앱을 찾을 수 없습니다."'
+          exit 1
+        fi
+        echo "$(date '+%F %T') using app: $APP_PATH" >> "$LOG"
         ENGINE="$APP_PATH/Contents/Frameworks/newnzip_engine/newnzip-engine"
         if [ ! -x "$ENGINE" ]; then
           echo "$(date '+%F %T') missing engine: $ENGINE" >> "$LOG"
@@ -253,10 +266,6 @@ final class FinderIntegrationService: ObservableObject {
         fi
         open -n -a "$APP_PATH" --args \(hudArgument) "$@"
         """
-    }
-
-    private func shellQuoted(_ value: String) -> String {
-        "'\(value.replacingOccurrences(of: "'", with: "'\\''"))'"
     }
 
     private func registerAppBundle() {

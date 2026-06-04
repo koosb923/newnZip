@@ -57,6 +57,13 @@ enum DragOverlayDockSide: String, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 
+enum BackgroundDisplayMode: String, CaseIterable, Identifiable {
+    case dock = "dock"
+    case menuBar = "menu_bar"
+
+    var id: String { rawValue }
+}
+
 @MainActor
 final class AppSettings: ObservableObject {
     static let shared = AppSettings()
@@ -95,6 +102,13 @@ final class AppSettings: ObservableObject {
         }
     }
 
+    @Published var backgroundDisplayMode: BackgroundDisplayMode {
+        didSet {
+            UserDefaults.standard.set(backgroundDisplayMode.rawValue, forKey: "background_display_mode")
+            NotificationCenter.default.post(name: .dragOverlaySettingChanged, object: nil)
+        }
+    }
+
     @Published var archivePassword: String {
         didSet { UserDefaults.standard.set(archivePassword, forKey: "archive_password") }
     }
@@ -121,6 +135,8 @@ final class AppSettings: ObservableObject {
         self.dragOverlayEnabled = UserDefaults.standard.object(forKey: "drag_overlay_enabled") as? Bool ?? true
         let savedDragOverlayDockSide = UserDefaults.standard.string(forKey: "drag_overlay_dock_side")
         self.dragOverlayDockSide = DragOverlayDockSide(rawValue: savedDragOverlayDockSide ?? "left") ?? .left
+        let savedBackgroundDisplayMode = UserDefaults.standard.string(forKey: "background_display_mode")
+        self.backgroundDisplayMode = BackgroundDisplayMode(rawValue: savedBackgroundDisplayMode ?? "menu_bar") ?? .menuBar
         self.archivePassword = UserDefaults.standard.string(forKey: "archive_password") ?? ""
 
         let savedLanguage = UserDefaults.standard.string(forKey: "language")

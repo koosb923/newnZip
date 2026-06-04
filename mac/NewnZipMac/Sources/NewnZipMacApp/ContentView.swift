@@ -1,4 +1,5 @@
 import AppKit
+import ObjectiveC
 import SwiftUI
 
 struct ContentView: View {
@@ -9,6 +10,7 @@ struct ContentView: View {
     @State private var isCompleted = false
     @State private var progressValue: Double?
     @State private var operationTask: Task<Void, Never>?
+    @State private var splitDialogMode: SplitInputMode = .sizeMB
 
     var body: some View {
         VStack(spacing: 12) {
@@ -24,7 +26,7 @@ struct ContentView: View {
 
             DropAreaView(
                 title: Localizer.shared.text("simple.single_drop_title"),
-                subtitle: Localizer.shared.text("simple.single_drop_subtitle", ["format": settings.defaultFormat.rawValue]),
+                subtitle: Localizer.shared.text("simple.single_drop_subtitle", ["format": ArchiveFormat.zip.rawValue]),
                 isProcessing: isProcessing,
                 isCompleted: isCompleted,
                 progressValue: progressValue,
@@ -94,21 +96,21 @@ struct ContentView: View {
         case .compress(let items):
             startCompression(
                 urls: items,
-                format: settings.defaultFormat,
+                format: .zip,
                 zipMethod: settings.zipMethod,
                 splitSizeMB: 0,
                 password: nil
             )
         case .extract(let items):
-            startExtraction(urls: items, password: normalizedPassword)
+            startExtraction(urls: items, password: nil)
         case .chooseForMultipleArchives(let items):
             switch promptForMultipleArchiveAction() {
             case .extractEach:
-                startExtraction(urls: items, password: normalizedPassword)
+                startExtraction(urls: items, password: nil)
             case .compressTogether:
                 startCompression(
                     urls: items,
-                    format: settings.defaultFormat,
+                    format: .zip,
                     zipMethod: settings.zipMethod,
                     splitSizeMB: 0,
                     password: nil
@@ -178,13 +180,32 @@ struct ContentView: View {
 
         operationTask = Task.detached(priority: .userInitiated) {
             do {
-                _ = try await EngineBridge.extract(
-                    urls: urls,
-                    password: password,
-                    conflictPolicy: conflictPolicy
-                ) { line in
-                    Task { @MainActor in
-                        handleEngineLine(line)
+                do {
+                    _ = try await EngineBridge.extract(
+                        urls: urls,
+                        password: password,
+                        conflictPolicy: conflictPolicy
+                    ) { line in
+                        Task { @MainActor in
+                            handleEngineLine(line)
+                        }
+                    }
+                } catch {
+                    guard password == nil,
+                          let retryPassword = await MainActor.run(body: {
+                              promptForExtractionPassword(defaultValue: settings.archivePassword)
+                          }) else {
+                        throw error
+                    }
+
+                    _ = try await EngineBridge.extract(
+                        urls: urls,
+                        password: retryPassword,
+                        conflictPolicy: conflictPolicy
+                    ) { line in
+                        Task { @MainActor in
+                            handleEngineLine(line)
+                        }
                     }
                 }
 
@@ -218,7 +239,7 @@ struct ContentView: View {
 
     @MainActor
     private func finishFailure(_ error: Error) {
-        statusText = Localizer.shared.text("simple.status_failed")
+        statusText = error.localizedDescription
         isProcessing = false
         isCompleted = false
         progressValue = nil
@@ -311,15 +332,36 @@ struct ContentView: View {
         alert.addButton(withTitle: "압축")
         alert.addButton(withTitle: "취소")
 
-        let secureField = NSSecureTextField(frame: NSRect(x: 0, y: 0, width: 260, height: 24))
-        secureField.stringValue = defaultValue
-        alert.accessoryView = secureField
+        let accessory = PasswordAccessoryView(defaultValue: defaultValue)
+        alert.accessoryView = accessory
 
         guard alert.runModal() == .alertFirstButtonReturn else {
             return nil
         }
 
-        let password = secureField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        let password = accessory.currentValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !password.isEmpty else {
+            return nil
+        }
+        settings.archivePassword = password
+        return password
+    }
+
+    private func promptForExtractionPassword(defaultValue: String) -> String? {
+        let alert = NSAlert()
+        alert.messageText = "암호 압축 풀기"
+        alert.informativeText = "압축을 풀기 위한 암호를 입력하세요."
+        alert.addButton(withTitle: "압축 풀기")
+        alert.addButton(withTitle: "취소")
+
+        let accessory = PasswordAccessoryView(defaultValue: defaultValue)
+        alert.accessoryView = accessory
+
+        guard alert.runModal() == .alertFirstButtonReturn else {
+            return nil
+        }
+
+        let password = accessory.currentValue.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !password.isEmpty else {
             return nil
         }
@@ -354,13 +396,25 @@ struct ContentView: View {
 
         let modePicker = NSPopUpButton(frame: NSRect(x: 0, y: 36, width: 260, height: 26), pullsDown: false)
         modePicker.addItems(withTitles: ["몇 MB씩 나누기", "몇 개로 나누기"])
+        modePicker.selectItem(at: splitDialogMode == .sizeMB ? 0 : 1)
 
         let valueField = NSTextField(frame: NSRect(x: 0, y: 0, width: 260, height: 24))
-        valueField.stringValue = "\(settings.defaultSplitSizeMB)"
+        valueField.stringValue = splitDialogMode == .sizeMB
+            ? "\(settings.defaultSplitSizeMB)"
+            : "\(settings.defaultSplitPartCount)"
+        modePicker.action = #selector(SplitModeTarget.modeChanged(_:))
+        let target = SplitModeTarget { selectedIndex in
+            splitDialogMode = selectedIndex == 0 ? .sizeMB : .partCount
+            valueField.stringValue = selectedIndex == 0
+                ? "\(settings.defaultSplitSizeMB)"
+                : "\(settings.defaultSplitPartCount)"
+        }
+        modePicker.target = target
 
         let container = NSView(frame: NSRect(x: 0, y: 0, width: 260, height: 62))
         container.addSubview(modePicker)
         container.addSubview(valueField)
+        objc_setAssociatedObject(container, "splitModeTarget", target, .OBJC_ASSOCIATION_RETAIN_NONATOMIC)
         alert.accessoryView = container
 
         guard alert.runModal() == .alertFirstButtonReturn else {
@@ -369,10 +423,12 @@ struct ContentView: View {
 
         let value = max(1, Int(valueField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)) ?? 0)
         if modePicker.indexOfSelectedItem == 0 {
+            splitDialogMode = .sizeMB
             settings.defaultSplitSizeMB = value
             return SplitRequest(splitSizeMB: value)
         }
 
+        splitDialogMode = .partCount
         settings.defaultSplitPartCount = max(2, value)
         let estimatedSplitSize = estimateSplitSizeMB(for: settings.defaultSplitPartCount, urls: urls)
         return SplitRequest(splitSizeMB: estimatedSplitSize)
@@ -417,4 +473,76 @@ private enum MultipleArchiveAction {
 
 private struct SplitRequest {
     let splitSizeMB: Int
+}
+
+@MainActor
+final class PasswordAccessoryView: NSView {
+    private let secureField = NSSecureTextField(frame: .zero)
+    private let plainField = NSTextField(frame: .zero)
+    private let toggleButton = NSButton(frame: .zero)
+
+    var currentValue: String {
+        secureField.isHidden ? plainField.stringValue : secureField.stringValue
+    }
+
+    init(defaultValue: String) {
+        super.init(frame: NSRect(x: 0, y: 0, width: 300, height: 24))
+
+        secureField.frame = NSRect(x: 0, y: 0, width: 260, height: 24)
+        secureField.stringValue = defaultValue
+
+        plainField.frame = secureField.frame
+        plainField.stringValue = defaultValue
+        plainField.isHidden = true
+
+        toggleButton.frame = NSRect(x: 268, y: 1, width: 24, height: 22)
+        toggleButton.bezelStyle = .shadowlessSquare
+        toggleButton.isBordered = false
+        toggleButton.image = NSImage(systemSymbolName: "eye", accessibilityDescription: "암호 보기")
+        toggleButton.target = self
+        toggleButton.action = #selector(toggleVisibility)
+
+        addSubview(secureField)
+        addSubview(plainField)
+        addSubview(toggleButton)
+    }
+
+    @objc
+    private func toggleVisibility() {
+        if secureField.isHidden {
+            secureField.stringValue = plainField.stringValue
+        } else {
+            plainField.stringValue = secureField.stringValue
+        }
+        secureField.isHidden.toggle()
+        plainField.isHidden.toggle()
+        toggleButton.image = NSImage(
+            systemSymbolName: secureField.isHidden ? "eye.slash" : "eye",
+            accessibilityDescription: secureField.isHidden ? "암호 숨기기" : "암호 보기"
+        )
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+}
+
+private enum SplitInputMode {
+    case sizeMB
+    case partCount
+}
+
+@MainActor
+private final class SplitModeTarget: NSObject {
+    private let handler: (Int) -> Void
+
+    init(handler: @escaping (Int) -> Void) {
+        self.handler = handler
+    }
+
+    @objc
+    func modeChanged(_ sender: NSPopUpButton) {
+        handler(sender.indexOfSelectedItem)
+    }
 }

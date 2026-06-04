@@ -104,40 +104,124 @@
                 BorderThickness="1"
                 CornerRadius="8"
                 Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
-            <StackPanel Spacing="8">
-                <ToggleSwitch x:Name="DefaultArchiveToggle"
-                              Header="기본 압축 앱으로 사용"
-                              Toggled="DefaultArchiveToggleToggled" />
-                <TextBlock x:Name="DefaultArchiveStatusText"
-                           Text="현재 기본 앱 상태를 확인 중입니다."
-                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                           TextWrapping="Wrap" />
-                <ComboBox x:Name="ConflictPolicyBox"
-                          Header="같은 이름 결과 처리"
-                          SelectionChanged="ConflictPolicySelectionChanged">
-                    <ComboBoxItem Content="사본으로 추가" Tag="Append" />
-                    <ComboBoxItem Content="덮어쓰기" Tag="Overwrite" />
-                    <ComboBoxItem Content="항상 물어보기" Tag="Ask" />
-                </ComboBox>
-                <PasswordBox x:Name="ArchivePasswordBox"
-                             Header="압축 암호 (생성/해제 공용)"
-                             PasswordChanged="ArchivePasswordBoxPasswordChanged" />
-                <TextBox x:Name="DefaultSplitSizeBox"
-                         Header="기본 분할 용량 MB"
-                         TextChanged="DefaultSplitSizeBoxTextChanged" />
-                <TextBox x:Name="DefaultSplitPartCountBox"
-                         Header="기본 분할 개수"
-                         TextChanged="DefaultSplitPartCountBoxTextChanged" />
-                <ToggleSwitch x:Name="DragOverlayToggle"
-                              Header="드래그 오버레이 표시"
-                              Toggled="DragOverlayToggleToggled" />
-                <ComboBox x:Name="DragOverlayDockSideBox"
-                          Header="드래그 오버레이 붙는 위치"
-                          SelectionChanged="DragOverlayDockSideSelectionChanged">
-                    <ComboBoxItem Content="왼쪽" Tag="Left" />
-                    <ComboBoxItem Content="오른쪽" Tag="Right" />
-                </ComboBox>
-            </StackPanel>
+            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                <StackPanel Spacing="14">
+                    <Grid ColumnSpacing="10">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+
+                        <Button x:Name="GeneralSettingsTabButton"
+                                Click="GeneralSettingsTabButtonClick"
+                                HorizontalAlignment="Stretch">
+                            <StackPanel Spacing="6" HorizontalAlignment="Center">
+                                <FontIcon Glyph="&#xE713;" FontSize="22" />
+                                <TextBlock Text="일반" />
+                            </StackPanel>
+                        </Button>
+
+                        <Button x:Name="CompressionSettingsTabButton"
+                                Grid.Column="1"
+                                Click="CompressionSettingsTabButtonClick"
+                                HorizontalAlignment="Stretch">
+                            <StackPanel Spacing="6" HorizontalAlignment="Center">
+                                <FontIcon Glyph="&#xE7B8;" FontSize="22" />
+                                <TextBlock Text="압축" />
+                            </StackPanel>
+                        </Button>
+
+                        <Button x:Name="OverlaySettingsTabButton"
+                                Grid.Column="2"
+                                Click="OverlaySettingsTabButtonClick"
+                                HorizontalAlignment="Stretch">
+                            <StackPanel Spacing="6" HorizontalAlignment="Center">
+                                <FontIcon Glyph="&#xE7C5;" FontSize="22" />
+                                <TextBlock Text="오버레이" />
+                            </StackPanel>
+                        </Button>
+                    </Grid>
+
+                    <Border
+                        x:Name="GeneralSettingsSection"
+                        Padding="12"
+                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                        BorderThickness="1"
+                        CornerRadius="8"
+                        Background="{ThemeResource LayerFillColorDefaultBrush}">
+                        <StackPanel Spacing="8">
+                            <TextBlock Text="일반" FontSize="16" FontWeight="SemiBold" />
+                            <TextBlock Text="중복 결과 처리와 기본 앱 상태를 관리합니다."
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                       TextWrapping="Wrap" />
+                            <ComboBox x:Name="ConflictPolicyBox"
+                                      Header="같은 이름 결과 처리"
+                                      SelectionChanged="ConflictPolicySelectionChanged">
+                                <ComboBoxItem Content="사본으로 추가" Tag="Append" />
+                                <ComboBoxItem Content="덮어쓰기" Tag="Overwrite" />
+                                <ComboBoxItem Content="항상 물어보기" Tag="Ask" />
+                            </ComboBox>
+                            <ToggleSwitch x:Name="DefaultArchiveToggle"
+                                          Header="기본 압축 앱으로 사용"
+                                          Toggled="DefaultArchiveToggleToggled" />
+                            <TextBlock x:Name="DefaultArchiveStatusText"
+                                       Text="현재 기본 앱 상태를 확인 중입니다."
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                       TextWrapping="Wrap" />
+                        </StackPanel>
+                    </Border>
+
+                    <Border
+                        x:Name="CompressionSettingsSection"
+                        Padding="12"
+                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                        BorderThickness="1"
+                        CornerRadius="8"
+                        Background="{ThemeResource LayerFillColorDefaultBrush}">
+                        <StackPanel Spacing="8">
+                            <TextBlock Text="압축" FontSize="16" FontWeight="SemiBold" />
+                            <TextBlock Text="암호와 분할 압축 기본값을 미리 저장합니다."
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                       TextWrapping="Wrap" />
+                            <PasswordBox x:Name="ArchivePasswordBox"
+                                         Header="압축 암호"
+                                         PasswordChanged="ArchivePasswordBoxPasswordChanged"
+                                         PasswordRevealMode="Visible" />
+                            <TextBox x:Name="DefaultSplitSizeBox"
+                                     Header="기본 분할 용량 MB"
+                                     TextChanged="DefaultSplitSizeBoxTextChanged" />
+                            <TextBox x:Name="DefaultSplitPartCountBox"
+                                     Header="기본 분할 개수"
+                                     TextChanged="DefaultSplitPartCountBoxTextChanged" />
+                        </StackPanel>
+                    </Border>
+
+                    <Border
+                        x:Name="OverlaySettingsSection"
+                        Padding="12"
+                        BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                        BorderThickness="1"
+                        CornerRadius="8"
+                        Background="{ThemeResource LayerFillColorDefaultBrush}">
+                        <StackPanel Spacing="8">
+                            <TextBlock Text="오버레이" FontSize="16" FontWeight="SemiBold" />
+                            <TextBlock Text="전역 드래그 오버레이 표시 여부와 붙는 위치를 정합니다."
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                       TextWrapping="Wrap" />
+                            <ToggleSwitch x:Name="DragOverlayToggle"
+                                          Header="드래그 오버레이 표시"
+                                          Toggled="DragOverlayToggleToggled" />
+                            <ComboBox x:Name="DragOverlayDockSideBox"
+                                      Header="드래그 오버레이 붙는 위치"
+                                      SelectionChanged="DragOverlayDockSideSelectionChanged">
+                                <ComboBoxItem Content="왼쪽" Tag="Left" />
+                                <ComboBoxItem Content="오른쪽" Tag="Right" />
+                            </ComboBox>
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </ScrollViewer>
         </Border>
 
         <Grid Grid.Row="3" ColumnSpacing="10">

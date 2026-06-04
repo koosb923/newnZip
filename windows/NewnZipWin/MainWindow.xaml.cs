@@ -8,6 +8,7 @@ namespace NewnZipWin;
 public sealed partial class MainWindow : Window
 {
     private readonly ArchiveCommand initialCommand;
+    private SettingsSection activeSettingsSection = SettingsSection.General;
     private bool updatingDefaultArchiveToggle;
     private bool updatingConflictPolicyBox;
     private bool updatingArchivePassword;
@@ -37,6 +38,7 @@ public sealed partial class MainWindow : Window
         RefreshArchivePassword();
         RefreshDragOverlaySettings();
         RefreshSplitDefaults();
+        ApplySettingsSection();
     }
 
     public async Task RunCommandAsync(ArchiveCommand command)
@@ -57,6 +59,25 @@ public sealed partial class MainWindow : Window
             ? Visibility.Collapsed
             : Visibility.Visible;
         RefreshDefaultArchiveStatus();
+        ApplySettingsSection();
+    }
+
+    private void GeneralSettingsTabButtonClick(object sender, RoutedEventArgs e)
+    {
+        activeSettingsSection = SettingsSection.General;
+        ApplySettingsSection();
+    }
+
+    private void CompressionSettingsTabButtonClick(object sender, RoutedEventArgs e)
+    {
+        activeSettingsSection = SettingsSection.Compression;
+        ApplySettingsSection();
+    }
+
+    private void OverlaySettingsTabButtonClick(object sender, RoutedEventArgs e)
+    {
+        activeSettingsSection = SettingsSection.Overlay;
+        ApplySettingsSection();
     }
 
     private void DefaultArchiveToggleToggled(object sender, RoutedEventArgs e)
@@ -227,6 +248,19 @@ public sealed partial class MainWindow : Window
         DefaultArchiveToggle.IsOn = status.IsDefault;
         DefaultArchiveStatusText.Text = status.Message;
         updatingDefaultArchiveToggle = false;
+    }
+
+    private void ApplySettingsSection()
+    {
+        GeneralSettingsSection.Visibility = activeSettingsSection == SettingsSection.General
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+        CompressionSettingsSection.Visibility = activeSettingsSection == SettingsSection.Compression
+            ? Visibility.Visible
+            : Visibility.Collapsed;
+        OverlaySettingsSection.Visibility = activeSettingsSection == SettingsSection.Overlay
+            ? Visibility.Visible
+            : Visibility.Collapsed;
     }
 
     private void DropSurfaceDragOver(object sender, DragEventArgs e) => ApplyDropOperation(e);
@@ -529,6 +563,13 @@ internal enum MultipleArchiveAction
     ExtractEach,
     CompressTogether,
     Cancel
+}
+
+internal enum SettingsSection
+{
+    General,
+    Compression,
+    Overlay
 }
 
 internal sealed record SplitOption(int SplitSizeMb);

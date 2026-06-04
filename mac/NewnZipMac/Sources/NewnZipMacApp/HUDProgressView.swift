@@ -12,6 +12,7 @@ struct HUDProgressView: View {
     @State private var isCompleted = false
     @State private var isFailed = false
     @State private var operationTask: Task<Void, Never>?
+    @State private var extractionPasswordPrompt = ExtractionPasswordPrompt()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -53,10 +54,12 @@ struct HUDProgressView: View {
             ? Localizer.shared.text("hud.compressing")
             : Localizer.shared.text("hud.extracting")
         detail = command.urls.first?.lastPathComponent ?? ""
+        let kindText = command.kind == .compress ? "compress" : "extract"
+        let joinedPaths = command.urls.map { $0.path }.joined(separator: " | ")
+        NewnZipDebugLog.write("HUD start kind=\(kindText) urls=\(joinedPaths)")
 
-        let currentFormat = settings.defaultFormat
+        let currentFormat = ArchiveFormat.zip
         let currentZipMethod = settings.zipMethod
-        let currentArchivePassword = settings.archivePassword.trimmingCharacters(in: .whitespacesAndNewlines)
         let currentConflictPolicy = resolvedConflictPolicy(
             format: currentFormat,
             splitSizeMB: 0
@@ -66,28 +69,48 @@ struct HUDProgressView: View {
             do {
                 switch command.kind {
                 case .compress:
-                    _ = try await EngineBridge.compress(
+                    let result = try await EngineBridge.compress(
                         urls: command.urls,
                         format: currentFormat,
                         zipMethod: currentZipMethod,
                         splitSizeMB: 0,
-                        password: currentArchivePassword.isEmpty ? nil : currentArchivePassword,
+                        password: nil,
                         conflictPolicy: currentConflictPolicy
                     ) { line in
                         Task { @MainActor in
                             handleEngineLine(line)
                         }
                     }
+                    NewnZipDebugLog.write("HUD compress success summary=\(result.summary)")
                 case .extract:
-                    _ = try await EngineBridge.extract(
-                        urls: command.urls,
-                        password: currentArchivePassword.isEmpty ? nil : currentArchivePassword,
-                        conflictPolicy: currentConflictPolicy
-                    ) { line in
-                        Task { @MainActor in
-                            handleEngineLine(line)
+                    let result: EngineResult
+                    do {
+                        result = try await EngineBridge.extract(
+                            urls: command.urls,
+                            password: nil,
+                            conflictPolicy: currentConflictPolicy
+                        ) { line in
+                            Task { @MainActor in
+                                handleEngineLine(line)
+                            }
+                        }
+                    } catch {
+                        guard let password = await MainActor.run(body: {
+                            extractionPasswordPrompt.prompt(defaultValue: settings.archivePassword)
+                        }) else {
+                            throw error
+                        }
+                        result = try await EngineBridge.extract(
+                            urls: command.urls,
+                            password: password,
+                            conflictPolicy: currentConflictPolicy
+                        ) { line in
+                            Task { @MainActor in
+                                handleEngineLine(line)
+                            }
                         }
                     }
+                    NewnZipDebugLog.write("HUD extract success summary=\(result.summary)")
                 }
 
                 await MainActor.run {
@@ -103,6 +126,7 @@ struct HUDProgressView: View {
                     closeSoon()
                 }
             } catch {
+                NewnZipDebugLog.write("HUD failure error=\(error.localizedDescription)")
                 await MainActor.run {
                     title = Localizer.shared.text("simple.status_failed")
                     detail = error.localizedDescription
@@ -161,4 +185,29 @@ struct HUDProgressView: View {
         }
     }
 
+}
+
+@MainActor
+private final class ExtractionPasswordPrompt {
+    func prompt(defaultValue: String) -> String? {
+        let alert = NSAlert()
+        alert.messageText = "암호 압축 풀기"
+        alert.informativeText = "압축을 풀기 위한 암호를 입력하세요."
+        alert.addButton(withTitle: "압축 풀기")
+        alert.addButton(withTitle: "취소")
+
+        let accessory = PasswordAccessoryView(defaultValue: defaultValue)
+        alert.accessoryView = accessory
+
+        guard alert.runModal() == .alertFirstButtonReturn else {
+            return nil
+        }
+
+        let password = accessory.currentValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !password.isEmpty else {
+            return nil
+        }
+        AppSettings.shared.archivePassword = password
+        return password
+    }
 }

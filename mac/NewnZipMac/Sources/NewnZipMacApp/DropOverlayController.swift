@@ -1,4 +1,5 @@
 import AppKit
+import Foundation
 
 @MainActor
 final class DropOverlayController {
@@ -69,8 +70,7 @@ final class DropOverlayController {
             return
         }
 
-        let urls = fileURLs(from: dragPasteboard)
-        guard !urls.isEmpty else {
+        guard hasFileDragPayload(in: dragPasteboard) else {
             if isShowingForCurrentDrag {
                 activeDragPasteboardChangeCount = nil
             }
@@ -146,6 +146,13 @@ final class DropOverlayController {
             return (object as? NSURL) as URL?
         }
     }
+
+    private func hasFileDragPayload(in pasteboard: NSPasteboard) -> Bool {
+        guard let types = pasteboard.types else {
+            return false
+        }
+        return types.contains(.fileURL)
+    }
 }
 
 @MainActor
@@ -176,14 +183,17 @@ private final class DropOverlayView: NSVisualEffectView {
     }
 
     override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
-        fileURLs(from: sender.draggingPasteboard).isEmpty ? [] : .copy
+        hasFileDragPayload(in: sender.draggingPasteboard) ? .copy : []
     }
 
     override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
         let urls = fileURLs(from: sender.draggingPasteboard)
         guard !urls.isEmpty else {
+            NewnZipDebugLog.write("overlay performDragOperation: no urls")
             return false
         }
+        let joinedPaths = urls.map { $0.path }.joined(separator: " | ")
+        NewnZipDebugLog.write("overlay performDragOperation urls=\(joinedPaths)")
         onDrop(urls)
         return true
     }
@@ -224,15 +234,38 @@ private final class DropOverlayView: NSVisualEffectView {
     }
 
     private func fileURLs(from pasteboard: NSPasteboard) -> [URL] {
-        let objects = pasteboard.readObjects(
-            forClasses: [NSURL.self],
-            options: [.urlReadingFileURLsOnly: true]
-        ) ?? []
-        return objects.compactMap { object in
-            if let url = object as? URL {
-                return url
+        let items = pasteboard.pasteboardItems ?? []
+        return items.compactMap { item in
+            guard let value = item.string(forType: .fileURL),
+                  let url = URL(string: value),
+                  url.isFileURL else {
+                return nil
             }
-            return (object as? NSURL) as URL?
+            return url
+        }
+    }
+
+    private func hasFileDragPayload(in pasteboard: NSPasteboard) -> Bool {
+        guard let types = pasteboard.types else {
+            return false
+        }
+        return types.contains(.fileURL)
+    }
+}
+
+enum NewnZipDebugLog {
+    static func write(_ message: String) {
+        let logURL = URL(fileURLWithPath: "/tmp/newnzip-overlay-debug.log")
+        let timestamp = ISO8601DateFormatter().string(from: Date())
+        let line = "[\(timestamp)] \(message)\n"
+        let data = Data(line.utf8)
+        if FileManager.default.fileExists(atPath: logURL.path),
+           let handle = try? FileHandle(forWritingTo: logURL) {
+            defer { try? handle.close() }
+            try? handle.seekToEnd()
+            try? handle.write(contentsOf: data)
+        } else {
+            try? data.write(to: logURL)
         }
     }
 }
