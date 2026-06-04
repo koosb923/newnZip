@@ -5,6 +5,76 @@ ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 APP_PATH="${1:-$HOME/Desktop/newnZip.app}"
 TMP_DIR="${TMPDIR:-/tmp}/newnzip-macos-build"
 SDK_PATH="${SDKROOT:-/Library/Developer/CommandLineTools/SDKs/MacOSX15.4.sdk}"
+SIGN_IDENTITY="${NEWNZIP_SIGN_IDENTITY:-}"
+NOTARY_PROFILE="${NEWNZIP_NOTARY_PROFILE:-}"
+NOTARIZE="${NEWNZIP_NOTARIZE:-}"
+NOTARY_APPLE_ID="${NEWNZIP_NOTARY_APPLE_ID:-}"
+NOTARY_PASSWORD="${NEWNZIP_NOTARY_PASSWORD:-}"
+NOTARY_TEAM_ID="${NEWNZIP_NOTARY_TEAM_ID:-}"
+NOTARY_KEY_PATH="${NEWNZIP_NOTARY_KEY_PATH:-}"
+NOTARY_KEY_ID="${NEWNZIP_NOTARY_KEY_ID:-}"
+NOTARY_ISSUER="${NEWNZIP_NOTARY_ISSUER:-}"
+
+detect_sign_identity() {
+  if [ -n "$SIGN_IDENTITY" ]; then
+    return 0
+  fi
+
+  local detected
+  detected="$(
+    security find-identity -v -p codesigning 2>/dev/null \
+      | awk -F '"' '/Developer ID Application: / { print $2; exit }' \
+      | head -n 1
+  )"
+  SIGN_IDENTITY="$detected"
+}
+
+sign_target() {
+  local target_path="$1"
+
+  if [ -n "$SIGN_IDENTITY" ]; then
+    codesign --force --timestamp --options runtime --sign "$SIGN_IDENTITY" "$target_path"
+  else
+    codesign --force --sign - "$target_path"
+  fi
+}
+
+notarize_app() {
+  local archive_path="$TMP_DIR/newnZip-notarize.zip"
+  local -a notary_args
+
+  if [ -z "$NOTARY_PROFILE" ] && [ -z "$NOTARY_APPLE_ID" ] && [ -z "$NOTARY_KEY_PATH" ]; then
+    if [ "$NOTARIZE" = "1" ]; then
+      echo "notarization 자격정보가 없습니다. NEWNZIP_NOTARY_PROFILE 또는 Apple ID/API key 환경변수를 지정하세요." >&2
+      exit 1
+    fi
+    return 0
+  fi
+
+  if [ -z "$SIGN_IDENTITY" ]; then
+    echo "notarization은 Developer ID 서명 후에만 가능합니다." >&2
+    exit 1
+  fi
+
+  if [ -n "$NOTARY_PROFILE" ]; then
+    notary_args+=(--keychain-profile "$NOTARY_PROFILE")
+  elif [ -n "$NOTARY_KEY_PATH" ]; then
+    notary_args+=(--key "$NOTARY_KEY_PATH" --key-id "$NOTARY_KEY_ID")
+    if [ -n "$NOTARY_ISSUER" ]; then
+      notary_args+=(--issuer "$NOTARY_ISSUER")
+    fi
+  else
+    notary_args+=(--apple-id "$NOTARY_APPLE_ID" --team-id "$NOTARY_TEAM_ID")
+    if [ -n "$NOTARY_PASSWORD" ]; then
+      notary_args+=(--password "$NOTARY_PASSWORD")
+    fi
+  fi
+
+  rm -f "$archive_path"
+  ditto -c -k --keepParent "$APP_PATH" "$archive_path"
+  xcrun notarytool submit "$archive_path" "${notary_args[@]}" --wait
+  xcrun stapler staple "$APP_PATH"
+}
 
 rm -rf "$TMP_DIR"
 mkdir -p "$TMP_DIR"
@@ -475,8 +545,28 @@ cat > "$APP_PATH/Contents/Info.plist" <<'PLIST'
 </plist>
 PLIST
 
-codesign --force --deep --sign - "$APP_PATH"
+detect_sign_identity
+sign_target "$APP_PATH/Contents/Frameworks/newnzip_engine/newnzip-engine"
+sign_target "$APP_PATH/Contents/MacOS/NewnZipMac"
+if [ -n "$SIGN_IDENTITY" ]; then
+  codesign --force --timestamp --options runtime --sign "$SIGN_IDENTITY" "$APP_PATH"
+else
+  codesign --force --deep --sign - "$APP_PATH"
+fi
+notarize_app
 
 echo "Built $APP_PATH"
+if [ -n "$SIGN_IDENTITY" ]; then
+  echo "Signed with: $SIGN_IDENTITY"
+else
+  echo "Signed with: ad-hoc"
+fi
+if [ -n "$NOTARY_PROFILE" ]; then
+  echo "Notarized with profile: $NOTARY_PROFILE"
+elif [ -n "$NOTARY_KEY_PATH" ]; then
+  echo "Notarized with App Store Connect API key: $NOTARY_KEY_ID"
+elif [ -n "$NOTARY_APPLE_ID" ]; then
+  echo "Notarized with Apple ID: $NOTARY_APPLE_ID"
+fi
 file "$APP_PATH/Contents/MacOS/NewnZipMac"
 file "$APP_PATH/Contents/Frameworks/newnzip_engine/newnzip-engine"

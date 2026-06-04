@@ -60,6 +60,27 @@ open ~/Desktop/newnZip.app
 
 앱이 `/Applications` 밖에서 실행되면 Applications 폴더로 설치할지 물어봅니다. 설치 후 `/Applications/newnZip.app` 기준으로 등록 스크립트를 실행합니다.
 
+Developer ID 서명과 notarization:
+
+```bash
+# 키체인에 Developer ID Application 인증서가 있으면 자동으로 그 인증서를 사용합니다.
+./scripts/build_macos_app.sh ~/Desktop/newnZip.app
+
+# notarytool 키체인 프로필이 있으면 notarization + staple까지 한 번에 수행합니다.
+NEWNZIP_NOTARY_PROFILE="your-notary-profile" \
+./scripts/build_macos_app.sh ~/Desktop/newnZip.app
+
+# 또는 Apple ID / 앱 전용 비밀번호 방식도 사용할 수 있습니다.
+NEWNZIP_NOTARY_APPLE_ID="dev@example.com" \
+NEWNZIP_NOTARY_PASSWORD="app-specific-password" \
+NEWNZIP_NOTARY_TEAM_ID="27GQ4W4322" \
+./scripts/build_macos_app.sh ~/Desktop/newnZip.app
+```
+
+- `NEWNZIP_SIGN_IDENTITY`를 지정하면 자동 감지 대신 해당 `Developer ID Application: ...` 값을 사용합니다.
+- `NEWNZIP_NOTARY_PROFILE`를 지정하면 `xcrun notarytool submit --wait` 후 `xcrun stapler staple`까지 수행합니다.
+- `NEWNZIP_NOTARY_APPLE_ID` / `NEWNZIP_NOTARY_PASSWORD` / `NEWNZIP_NOTARY_TEAM_ID` 조합이나 App Store Connect API key 환경변수도 사용할 수 있습니다.
+
 ## Windows
 
 Windows 앱은 `windows/NewnZipWin` 아래에 있으며 WinUI 3 기반입니다.
