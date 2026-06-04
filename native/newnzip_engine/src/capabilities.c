@@ -11,7 +11,7 @@ typedef struct {
 } FormatCapability;
 
 static const FormatCapability FORMAT_CAPABILITIES[] = {
-    {"zip", true, true, true, true, "native deflate/store, split volumes, ZipCrypto password create/extract"},
+    {"zip", true, true, true, true, "native deflate/store, split volumes, ZipCrypto/AES password create/extract"},
     {"7z", true, true, false, false, "7zz/7z adapter when backend is available, including password support"},
     {"rar", false, true, false, false, "7zz/7z extract adapter when backend is available"},
     {"tar", true, true, false, false, "bsdtar/libarchive adapter"},

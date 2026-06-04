@@ -123,6 +123,24 @@ static void apply_zip64_extra(CentralEntry *entry, const unsigned char *extra, u
     }
 }
 
+static void apply_zip_encryption_extras(CentralEntry *entry, const unsigned char *extra, uint16_t extra_length) {
+    size_t cursor = 0;
+    while (cursor + 4 <= extra_length) {
+        uint16_t header_id = read_u16(extra + cursor);
+        uint16_t data_size = read_u16(extra + cursor + 2);
+        cursor += 4;
+        if (cursor + data_size > extra_length) {
+            break;
+        }
+        if (header_id == ZIP_AES_EXTRA_FIELD_ID) {
+            if (zip_aes_apply_extra_field(entry, extra + cursor, data_size)) {
+                return;
+            }
+        }
+        cursor += data_size;
+    }
+}
+
 static CentralList parse_central_directory(FILE *file) {
     size_t tail_size = 0;
     long archive_size = 0;
@@ -206,14 +224,23 @@ static CentralList parse_central_directory(FILE *file) {
         entry.local_header_offset = local_offset;
         entry.external_attributes = external_attributes;
         entry.method = method;
+        entry.actual_method = method;
         entry.mod_time = mod_time;
         entry.mod_date = mod_date;
         entry.general_purpose_flag = general_purpose_flag;
         entry.encrypted = (general_purpose_flag & ZIP_GENERAL_PURPOSE_ENCRYPTED) != 0;
+        entry.encryption_mode = entry.encrypted ? ZIP_ENCRYPTION_ZIPCRYPTO : ZIP_ENCRYPTION_NONE;
+        entry.aes_strength = 0;
         apply_zip64_extra(&entry, buffer + cursor + 46 + name_length, extra_length);
-        entry.payload_size = entry.encrypted && entry.compressed_size >= 12u
-            ? entry.compressed_size - 12u
-            : entry.compressed_size;
+        apply_zip_encryption_extras(&entry, buffer + cursor + 46 + name_length, extra_length);
+        if (entry.encryption_mode == ZIP_ENCRYPTION_AES256) {
+            uint64_t overhead = (uint64_t) zip_aes_salt_length(entry.aes_strength) + 2u + (uint64_t) zip_aes_auth_code_length();
+            entry.payload_size = entry.compressed_size >= overhead ? entry.compressed_size - overhead : 0;
+        } else if (entry.encrypted && entry.compressed_size >= 12u) {
+            entry.payload_size = entry.compressed_size - 12u;
+        } else {
+            entry.payload_size = entry.compressed_size;
+        }
         central_list_push(&list, entry);
 
         cursor += 46 + name_length + extra_length + comment_length;
@@ -256,7 +283,7 @@ static bool entry_is_encrypted(const CentralEntry *entry) {
     return (entry->general_purpose_flag & ZIP_GENERAL_PURPOSE_ENCRYPTED) != 0;
 }
 
-static void initialize_crypto_for_entry(
+static void initialize_zipcrypto_for_entry(
     FILE *archive,
     const CentralEntry *entry,
     const RuntimeOptions *options,
@@ -280,6 +307,25 @@ static void initialize_crypto_for_entry(
     for (size_t index = 0; index < sizeof(encrypted_header); index++) {
         (void) zip_crypto_decrypt_byte(state, encrypted_header[index]);
     }
+}
+
+static ZipAesContext *initialize_aes_for_entry(
+    FILE *archive,
+    const CentralEntry *entry,
+    const RuntimeOptions *options
+) {
+    if (!options->password || !*options->password) {
+        fail("암호가 필요한 ZIP 항목입니다");
+    }
+
+    size_t salt_length = zip_aes_salt_length(entry->aes_strength);
+    unsigned char salt[16];
+    unsigned char password_verifier[2];
+    if (fread(salt, 1, salt_length, archive) != salt_length ||
+        fread(password_verifier, 1, 2u, archive) != 2u) {
+        fail_errno("AES ZIP 헤더를 읽지 못했습니다");
+    }
+    return zip_aes_create_decryptor(options->password, entry->aes_strength, salt, password_verifier);
 }
 
 static void copy_stored_bytes(FILE *archive, FILE *output, uint64_t size, unsigned char *buffer, size_t chunk_size) {
@@ -417,6 +463,82 @@ static void inflate_stream_to_file_encrypted(
     inflateEnd(&stream);
 }
 
+static void copy_stored_bytes_aes(
+    FILE *archive,
+    FILE *output,
+    uint64_t size,
+    unsigned char *buffer,
+    size_t chunk_size,
+    ZipAesContext *context
+) {
+    uint64_t remaining = size;
+    while (remaining > 0) {
+        size_t chunk = remaining > chunk_size ? chunk_size : (size_t) remaining;
+        if (fread(buffer, 1, chunk, archive) != chunk) {
+            fail_errno("AES ZIP 데이터를 읽지 못했습니다");
+        }
+        zip_aes_auth_update(context, buffer, chunk);
+        zip_aes_crypt(context, buffer, chunk);
+        if (fwrite(buffer, 1, chunk, output) != chunk) {
+            fail_errno("해제 파일을 기록하지 못했습니다");
+        }
+        remaining -= (uint64_t) chunk;
+    }
+}
+
+static void inflate_stream_to_file_aes(
+    FILE *archive,
+    FILE *output,
+    uint64_t compressed_size,
+    unsigned char *in_buffer,
+    unsigned char *out_buffer,
+    size_t chunk_size,
+    ZipAesContext *context
+) {
+    z_stream stream;
+    memset(&stream, 0, sizeof(stream));
+    if (inflateInit2(&stream, -MAX_WBITS) != Z_OK) {
+        fail("failed to initialize inflate");
+    }
+
+    uint64_t remaining = compressed_size;
+    int finished = 0;
+    while (!finished && remaining > 0) {
+        size_t chunk = remaining > chunk_size ? chunk_size : (size_t) remaining;
+        if (fread(in_buffer, 1, chunk, archive) != chunk) {
+            inflateEnd(&stream);
+            fail_errno("AES ZIP 데이터를 읽지 못했습니다");
+        }
+        zip_aes_auth_update(context, in_buffer, chunk);
+        zip_aes_crypt(context, in_buffer, chunk);
+        remaining -= (uint64_t) chunk;
+        stream.next_in = in_buffer;
+        stream.avail_in = (uInt) chunk;
+
+        while (stream.avail_in > 0 || (remaining == 0 && !finished)) {
+            stream.next_out = out_buffer;
+            stream.avail_out = (uInt) chunk_size;
+            int result = inflate(&stream, Z_NO_FLUSH);
+            if (result == Z_STREAM_END) {
+                finished = 1;
+            } else if (result != Z_OK) {
+                inflateEnd(&stream);
+                fail("failed to inflate archive entry");
+            }
+            size_t have = chunk_size - stream.avail_out;
+            if (have > 0 && fwrite(out_buffer, 1, have, output) != have) {
+                inflateEnd(&stream);
+                fail_errno("failed to write extracted file");
+            }
+            if (result == Z_STREAM_END || stream.avail_in == 0) {
+                break;
+            }
+        }
+    }
+
+    inflateEnd(&stream);
+}
+
 static void extract_entry(
     FILE *archive,
     const CentralEntry *entry,
@@ -444,9 +566,13 @@ static void extract_entry(
 
     ZipCryptoState crypto_state;
     ZipCryptoState *crypto_state_ptr = NULL;
+    ZipAesContext *aes_context = NULL;
     uint64_t payload_size = entry->compressed_size;
-    if (entry_is_encrypted(entry)) {
-        initialize_crypto_for_entry(archive, entry, options, &crypto_state);
+    if (entry->encryption_mode == ZIP_ENCRYPTION_AES256) {
+        aes_context = initialize_aes_for_entry(archive, entry, options);
+        payload_size -= (uint64_t) zip_aes_salt_length(entry->aes_strength) + 2u + (uint64_t) zip_aes_auth_code_length();
+    } else if (entry_is_encrypted(entry)) {
+        initialize_zipcrypto_for_entry(archive, entry, options, &crypto_state);
         crypto_state_ptr = &crypto_state;
         payload_size -= 12u;
     }
@@ -469,7 +595,11 @@ static void extract_entry(
             fail("unsupported symlink compression method");
         }
         char *link_target = NULL;
-        if (entry_is_encrypted(entry)) {
+        if (entry->encryption_mode == ZIP_ENCRYPTION_AES256) {
+            link_target = read_stored_payload(archive, payload_size);
+            zip_aes_auth_update(aes_context, (const unsigned char *) link_target, (size_t) payload_size);
+            zip_aes_crypt(aes_context, (unsigned char *) link_target, (size_t) payload_size);
+        } else if (entry_is_encrypted(entry)) {
             link_target = read_stored_payload(archive, payload_size);
             for (uint64_t index = 0; index < payload_size; index++) {
                 link_target[index] = (char) zip_crypto_decrypt_byte(crypto_state_ptr, (unsigned char) link_target[index]);
@@ -498,14 +628,22 @@ static void extract_entry(
         fail_errno(target_path);
     }
 
-    if (entry->method == ZIP_METHOD_STORE) {
-        if (entry_is_encrypted(entry)) {
+    uint16_t effective_method = entry->encryption_mode == ZIP_ENCRYPTION_AES256
+        ? entry->actual_method
+        : entry->method;
+
+    if (effective_method == ZIP_METHOD_STORE) {
+        if (entry->encryption_mode == ZIP_ENCRYPTION_AES256) {
+            copy_stored_bytes_aes(archive, output, payload_size, input_buffer, chunk_size, aes_context);
+        } else if (entry_is_encrypted(entry)) {
             copy_stored_bytes_encrypted(archive, output, payload_size, input_buffer, chunk_size, crypto_state_ptr);
         } else {
             copy_stored_bytes(archive, output, payload_size, input_buffer, chunk_size);
         }
-    } else if (entry->method == ZIP_METHOD_DEFLATE) {
-        if (entry_is_encrypted(entry)) {
+    } else if (effective_method == ZIP_METHOD_DEFLATE) {
+        if (entry->encryption_mode == ZIP_ENCRYPTION_AES256) {
+            inflate_stream_to_file_aes(archive, output, payload_size, input_buffer, output_buffer, chunk_size, aes_context);
+        } else if (entry_is_encrypted(entry)) {
             inflate_stream_to_file_encrypted(archive, output, payload_size, input_buffer, output_buffer, chunk_size, crypto_state_ptr);
         } else {
             inflate_stream_to_file(archive, output, payload_size, input_buffer, output_buffer, chunk_size);
@@ -517,6 +655,21 @@ static void extract_entry(
     }
 
     fclose(output);
+    if (aes_context) {
+        unsigned char expected_auth[10];
+        unsigned char actual_auth[10];
+        zip_aes_finalize_auth(aes_context, expected_auth);
+        if (fread(actual_auth, 1, sizeof(actual_auth), archive) != sizeof(actual_auth)) {
+            zip_aes_destroy(aes_context);
+            free(target_path);
+            fail_errno("AES ZIP 인증 코드를 읽지 못했습니다");
+        }
+        zip_aes_destroy(aes_context);
+        if (memcmp(expected_auth, actual_auth, sizeof(actual_auth)) != 0) {
+            free(target_path);
+            fail("AES ZIP 인증 검증에 실패했습니다");
+        }
+    }
     free(target_path);
 }
 
@@ -598,9 +751,6 @@ void command_list(const char *archive_path) {
 }
 
 void command_extract(const char *archive_path, const char *destination, const RuntimeOptions *options) {
-    if (zip_aes_mode_enabled(options)) {
-        zip_aes_not_implemented();
-    }
     FILE *file = fopen(archive_path, "rb");
     if (!file) {
         fail_errno(archive_path);
