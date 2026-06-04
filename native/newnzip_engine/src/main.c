@@ -19,7 +19,6 @@ static void print_usage(void) {
     fprintf(stderr, "  --threads=N  병렬 처리 스레드 수 지정\n");
     fprintf(stderr, "  --mode=auto|balanced|max|low-memory  성능 모드 지정\n");
     fprintf(stderr, "  --password=암호  ZIP/7Z 암호 지정 (ZIP은 네이티브, 7Z는 backend 필요)\n");
-    fprintf(stderr, "  --zip-encryption=zipcrypto|aes256  ZIP 암호화 방식 지정\n");
 }
 
 static bool parse_option(const char *argument, RuntimeOptions *options) {
