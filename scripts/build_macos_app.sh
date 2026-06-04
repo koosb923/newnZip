@@ -106,6 +106,7 @@ clang -std=c11 -O2 -Wall -Wextra -pedantic \
   "$ROOT_DIR/native/newnzip_engine/src/zip_writer.c" \
   "$ROOT_DIR/native/newnzip_engine/src/zip_reader.c" \
   "$ROOT_DIR/native/newnzip_engine/src/zip_crypto.c" \
+  "$ROOT_DIR/native/newnzip_engine/src/zip_aes.c" \
   "$ROOT_DIR/native/newnzip_engine/src/benchmark.c" \
   "$ROOT_DIR/native/newnzip_engine/src/capabilities.c" \
   "$ROOT_DIR/native/newnzip_engine/src/archive_adapter.c" \

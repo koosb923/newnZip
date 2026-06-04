@@ -26,6 +26,7 @@ make
 ./bin/newnzip-engine create --method=auto output.zip /path/to/folder
 ./bin/newnzip-engine create --method=store output.zip /path/to/folder
 ./bin/newnzip-engine create --password=0923 output.zip /path/to/folder
+./bin/newnzip-engine create --password=0923 --zip-encryption=zipcrypto output.zip /path/to/folder
 ./bin/newnzip-engine create --format=tar.gz output.tar.gz /path/to/folder
 ./bin/newnzip-engine create --format=zip --password=0923 --split=100m output.zip /path/to/folder
 ./bin/newnzip-engine extract archive.zip /destination/folder
@@ -49,6 +50,8 @@ make
 ## 참고
 
 - `zlib`를 사용해 Deflate 압축과 해제를 수행합니다.
+- `ZipCrypto` 기반 ZIP 암호화/복호화를 네이티브 경로로 처리합니다.
+- `AES ZIP`은 다음 단계 구현 대상으로 옵션 골격이 준비되어 있습니다.
 - 표준 ZIP 중앙 디렉터리 레코드를 기록합니다.
 - ZIP은 일반 파일, 폴더, symlink metadata, 분할 볼륨을 처리합니다.
 - ZIP64를 사용해 4GB 초과 크기/오프셋, 65535개 초과 항목, 큰 중앙 디렉터리를 처리합니다.

@@ -70,6 +70,7 @@ typedef struct {
     uint64_t split_size;
     const char *archive_format;
     const char *zip_method;
+    const char *zip_encryption_mode;
     const char *performance_mode;
     const char *password;
 } RuntimeOptions;

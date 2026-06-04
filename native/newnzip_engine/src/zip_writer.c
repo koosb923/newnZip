@@ -1,4 +1,5 @@
 #include "common.h"
+#include "zip_aes.h"
 #include "zip_crypto.h"
 #include "zip_writer.h"
 
@@ -805,6 +806,9 @@ static void write_central_directory(FILE *output, const CentralList *entries) {
 void command_create(int argc, char **argv, const RuntimeOptions *options) {
     if (argc < 4) {
         fail("사용법: newnzip-engine create output.zip <파일-또는-폴더>...");
+    }
+    if (zip_aes_mode_enabled(options)) {
+        zip_aes_not_implemented();
     }
     if (strcasecmp(options->zip_method, "deflate") != 0 &&
         strcasecmp(options->zip_method, "store") != 0 &&

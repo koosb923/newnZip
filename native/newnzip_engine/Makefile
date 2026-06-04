@@ -5,7 +5,7 @@ ifeq ($(shell uname -s),Darwin)
 LDFLAGS += -framework CoreFoundation
 endif
 TARGET := bin/newnzip-engine
-SRC := src/main.c src/common.c src/runtime.c src/progress.c src/zip_writer.c src/zip_reader.c src/zip_crypto.c src/benchmark.c src/capabilities.c src/archive_adapter.c
+SRC := src/main.c src/common.c src/runtime.c src/progress.c src/zip_writer.c src/zip_reader.c src/zip_crypto.c src/zip_aes.c src/benchmark.c src/capabilities.c src/archive_adapter.c
 
 .PHONY: all clean
 

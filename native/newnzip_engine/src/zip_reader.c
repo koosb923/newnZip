@@ -1,4 +1,5 @@
 #include "common.h"
+#include "zip_aes.h"
 #include "zip_crypto.h"
 #include "zip_reader.h"
 
@@ -597,6 +598,9 @@ void command_list(const char *archive_path) {
 }
 
 void command_extract(const char *archive_path, const char *destination, const RuntimeOptions *options) {
+    if (zip_aes_mode_enabled(options)) {
+        zip_aes_not_implemented();
+    }
     FILE *file = fopen(archive_path, "rb");
     if (!file) {
         fail_errno(archive_path);
